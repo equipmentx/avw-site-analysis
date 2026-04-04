@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  --foreground: #f8fafc;
+  --background: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  scroll-behavior: smooth;
+}
+
+/* ─── Custom scrollbar ──────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0f172a; }
+::-webkit-scrollbar-thumb { background: #1e3a8a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+/* ─── Google Places Autocomplete dropdown ──────────────── */
+.pac-container {
+  background: #1e293b !important;
+  border: 1px solid #334155 !important;
+  border-radius: 12px !important;
+  margin-top: 4px !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5) !important;
+  font-family: 'Inter', sans-serif !important;
+  overflow: hidden;
+}
+
+.pac-item {
+  padding: 12px 16px !important;
+  border-top: 1px solid #334155 !important;
+  color: #e2e8f0 !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+}
+
+.pac-item:first-child { border-top: none !important; }
+.pac-item:hover, .pac-item-selected { background: #1e3a8a !important; }
+
+.pac-icon {
+  filter: invert(0.7) sepia(1) saturate(2) hue-rotate(200deg) !important;
+}
+
+.pac-item-query {
+  color: #93c5fd !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.pac-matched { color: #60a5fa !important; font-weight: 600 !important; }
+
+.pac-logo::after { display: none !important; }
+
+/* ─── Score ring animation ─────────────────────────────── */
+@keyframes draw-ring {
+  from { stroke-dashoffset: 283; }
+  to   { stroke-dashoffset: var(--target-offset); }
+}
+
+.score-ring circle.progress {
+  animation: draw-ring 1.5s ease-out forwards;
+}
+
+/* ─── Card hover effects ───────────────────────────────── */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+}
+
+/* ─── Gradient text ────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa, #34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Shimmer loading state ────────────────────────────── */
+.shimmer {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ─── Hero background (legacy fallback) ────────────────── */
+.hero-bg {
+  background: #0f172a;
+}
+
+/* ─── Verdict glow ─────────────────────────────────────── */
+.verdict-go     { text-shadow: 0 0 30px rgba(16, 185, 129, 0.5); }
+.verdict-caution { text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
+.verdict-nogo   { text-shadow: 0 0 30px rgba(239, 68, 68, 0.5); }
