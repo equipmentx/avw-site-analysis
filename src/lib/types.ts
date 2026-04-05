@@ -117,17 +117,37 @@ export interface FinancialAssumptions {
   loanTermYears: number;
 }
 
+export interface InvestmentSuggestion {
+  minEstimateUSD: number;
+  maxEstimateUSD: number;
+  cityTier: string;
+  countryCode: string;
+  countryName: string;
+  breakdown: {
+    land:         { min: number; max: number };
+    construction: { min: number; max: number };
+    equipment:    { min: number; max: number };
+    fees:         { min: number; max: number };
+  };
+  rationale: string;
+  marketContext: string;
+  dataTimestamp: string;
+  sourceNote: string;
+}
+
 export interface SiteAnalysisResult {
   address: string;
   placeId: string;
   coordinates: { lat: number; lng: number };
   analyzedAt: string;
+  countryCode: string;
   competitors: CompetitorAnalysis[];
   trafficSignals: TrafficSignals;
   score: LocationScore;
   financialProjection: FinancialProjection;
   reviewInsights: ReviewInsights;
   recommendations: Recommendation[];
+  investmentSuggestion: InvestmentSuggestion;
 }
 
 export interface ReviewInsights {
@@ -147,3 +167,30 @@ export interface Recommendation {
   description: string;
   icon: string;
 }
+
+// ── Currency types ────────────────────────────────────────────────────────────
+export interface CurrencyOption {
+  code: string;
+  symbol: string;
+  name: string;
+  flag: string;
+}
+
+export const CURRENCIES: CurrencyOption[] = [
+  { code: "USD", symbol: "$",    name: "US Dollar",          flag: "🇺🇸" },
+  { code: "GBP", symbol: "£",    name: "British Pound",      flag: "🇬🇧" },
+  { code: "EUR", symbol: "€",    name: "Euro",               flag: "🇪🇺" },
+  { code: "NGN", symbol: "₦",    name: "Nigerian Naira",     flag: "🇳🇬" },
+  { code: "CAD", symbol: "C$",   name: "Canadian Dollar",    flag: "🇨🇦" },
+  { code: "AUD", symbol: "A$",   name: "Australian Dollar",  flag: "🇦🇺" },
+  { code: "ZAR", symbol: "R",    name: "South African Rand", flag: "🇿🇦" },
+  { code: "GHS", symbol: "₵",    name: "Ghanaian Cedi",      flag: "🇬🇭" },
+  { code: "KES", symbol: "KSh",  name: "Kenyan Shilling",    flag: "🇰🇪" },
+  { code: "AED", symbol: "د.إ",  name: "UAE Dirham",         flag: "🇦🇪" },
+  { code: "INR", symbol: "₹",    name: "Indian Rupee",       flag: "🇮🇳" },
+  { code: "BRL", symbol: "R$",   name: "Brazilian Real",     flag: "🇧🇷" },
+  { code: "MXN", symbol: "MX$",  name: "Mexican Peso",       flag: "🇲🇽" },
+  { code: "JPY", symbol: "¥",    name: "Japanese Yen",       flag: "🇯🇵" },
+  { code: "CNY", symbol: "CN¥",  name: "Chinese Yuan",       flag: "🇨🇳" },
+  { code: "SAR", symbol: "﷼",   name: "Saudi Riyal",        flag: "🇸🇦" },
+];

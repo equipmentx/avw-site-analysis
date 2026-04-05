@@ -9,14 +9,15 @@ import {
   Share2, Download,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import type { SiteAnalysisResult } from "@/lib/types";
+import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
+import { CURRENCIES } from "@/lib/types";
 import ScoreRing from "@/components/ScoreRing";
 import ScoreBreakdown from "@/components/ScoreBreakdown";
 import CompetitorCard from "@/components/CompetitorCard";
 import RecommendationCard from "@/components/RecommendationCard";
 import TrafficSignalsPanel from "@/components/TrafficSignals";
+import CurrencySelector from "@/components/CurrencySelector";
 
-// Lazy load heavy components
 const FinancialProjectionPanel = dynamic(
   () => import("@/components/FinancialProjection"),
   { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
@@ -24,6 +25,10 @@ const FinancialProjectionPanel = dynamic(
 const AnalysisMap = dynamic(
   () => import("@/components/AnalysisMap"),
   { ssr: false, loading: () => <div className="shimmer h-[480px] rounded-2xl" /> }
+);
+const InvestmentSuggestionPanel = dynamic(
+  () => import("@/components/InvestmentSuggestion"),
+  { ssr: false, loading: () => <div className="shimmer h-40 rounded-2xl" /> }
 );
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
@@ -156,13 +161,41 @@ function Section({
 function AnalysisPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const address = searchParams.get("address") ?? "";
-  const budget = searchParams.get("budget") ?? "";
+  const address  = searchParams.get("address") ?? "";
+  const budget   = searchParams.get("budget")  ?? "";
+  const currCode = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
 
-  const [result, setResult] = useState<SiteAnalysisResult | null>(null);
+  const [result, setResult]   = useState<SiteAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError]     = useState("");
   const hasFetched = useRef(false);
+
+  // Currency + live rates
+  const [currency, setCurrency] = useState<CurrencyOption>(
+    CURRENCIES.find((c) => c.code === currCode) ?? CURRENCIES[0]
+  );
+  const [rates, setRates]       = useState<Record<string, number>>({ USD: 1 });
+  const [ratesFetchedAt, setRatesFetchedAt] = useState("");
+  const [ratesSource, setRatesSource]       = useState("");
+
+  const handleCurrencyChange = (c: CurrencyOption) => {
+    setCurrency(c);
+    if (typeof localStorage !== "undefined") localStorage.setItem("carwash_currency", c.code);
+  };
+
+  // Fetch live rates once on mount
+  useEffect(() => {
+    fetch("/api/rates")
+      .then((r) => r.json())
+      .then((d) => {
+        setRates(d.rates ?? { USD: 1 });
+        setRatesFetchedAt(d.fetchedAt ?? "");
+        setRatesSource(d.source ?? "");
+      })
+      .catch(() => {});
+  }, []);
+
+  const rate = rates[currency.code] ?? 1;
 
   const runAnalysis = async () => {
     if (!address) { setError("No address provided."); setLoading(false); return; }
@@ -215,14 +248,16 @@ function AnalysisPageInner() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Verdict pill */}
+            {ratesFetchedAt && (
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Live rates</span>
+              </div>
+            )}
+            <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
             <div
               className="px-3 py-1.5 rounded-full text-xs font-black"
-              style={{
-                backgroundColor: `${score.verdictColor}20`,
-                color: score.verdictColor,
-                border: `1px solid ${score.verdictColor}40`,
-              }}
+              style={{ backgroundColor: `${score.verdictColor}20`, color: score.verdictColor, border: `1px solid ${score.verdictColor}40` }}
             >
               {score.verdict}
             </div>
@@ -411,12 +446,27 @@ function AnalysisPageInner() {
         )}
 
         {/* ── Financial Projection ────────────────────────────────── */}
+        {/* ── Investment Suggestion ────────────────────────────────── */}
+        <Section
+          title="Suggested Investment Range"
+          subtitle={`Live market estimate for ${result.countryCode} · ${currency.code} · rates updated hourly`}
+          icon={<DollarSign className="w-5 h-5 text-blue-400" />}
+        >
+          <InvestmentSuggestionPanel
+            data={result.investmentSuggestion}
+            currency={currency}
+            rate={rate}
+            fetchedAt={ratesFetchedAt || result.analyzedAt}
+          />
+        </Section>
+
+        {/* ── Financial Projection ─────────────────────────────────── */}
         <Section
           title="5-Year Financial Projection"
-          subtitle="Revenue, EBITDA, and ROI based on your location's traffic profile"
+          subtitle="Revenue, EBITDA, and return on investment based on your location's traffic profile"
           icon={<DollarSign className="w-5 h-5 text-emerald-400" />}
         >
-          <FinancialProjectionPanel data={financialProjection} />
+          <FinancialProjectionPanel data={financialProjection} currency={currency} rate={rate} />
         </Section>
 
         {/* ── Recommendations ─────────────────────────────────────── */}

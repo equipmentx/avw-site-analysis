@@ -6,6 +6,8 @@ import {
   MapPin, TrendingUp, Star, DollarSign, BarChart2,
   CheckCircle, ChevronRight, Zap, Shield,
 } from "lucide-react";
+import CurrencySelector from "@/components/CurrencySelector";
+import { CURRENCIES, type CurrencyOption } from "@/lib/types";
 
 declare global {
   interface Window {
@@ -224,6 +226,21 @@ export default function LandingPage() {
   const [error, setError] = useState("");
   const [bgIndex, setBgIndex] = useState(0);
   const [bgFading, setBgFading] = useState(false);
+  const [currency, setCurrency] = useState<CurrencyOption>(CURRENCIES[0]);
+
+  // Persist currency in localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("carwash_currency");
+    if (saved) {
+      const found = CURRENCIES.find((c) => c.code === saved);
+      if (found) setCurrency(found);
+    }
+  }, []);
+
+  const handleCurrencyChange = (c: CurrencyOption) => {
+    setCurrency(c);
+    localStorage.setItem("carwash_currency", c.code);
+  };
 
   // Background rotation — 10 seconds
   useEffect(() => {
@@ -271,6 +288,7 @@ export default function LandingPage() {
     setLoading(true);
     const params = new URLSearchParams({ address: val });
     if (budget) params.set("budget", budget);
+    params.set("currency", currency.code);
     router.push(`/analysis?${params.toString()}`);
   };
 
@@ -347,18 +365,18 @@ export default function LandingPage() {
                   onChange={(e) => setAddress(e.target.value)}
                 />
               </div>
-              <div className="flex items-center gap-3 px-4 py-2 border-t border-slate-700/40">
-                <span className="text-slate-200 text-sm font-bold flex-shrink-0">$</span>
+              <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
+                <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
                 <input
                   type="text"
-                  placeholder="Investment budget (optional) — e.g., 3,500,000"
+                  placeholder={`Investment budget (optional) — e.g., ${currency.symbol}3,500,000`}
                   className="flex-1 bg-transparent text-slate-200 placeholder-slate-500 text-sm outline-none"
                   value={budget ? parseInt(budget).toLocaleString() : ""}
                   onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
                 />
                 {budget && (
                   <span className="text-xs text-emerald-400 font-semibold whitespace-nowrap">
-                    USD
+                    {currency.symbol}{parseInt(budget).toLocaleString()} {currency.code}
                   </span>
                 )}
               </div>
