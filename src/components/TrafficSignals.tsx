@@ -60,10 +60,8 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
         <h4 className="text-white font-semibold text-sm mb-3">Nearby Traffic Generators</h4>
         <div className="space-y-3">
           {SIGNAL_META.map(({ key, label, icon, desc, max }) => {
-            // Cap at max — extras beyond the max don't improve the score
             const raw = signals[key as keyof TrafficSignals] as number;
-            const val = Math.min(raw, max);
-            const pct = Math.round((val / max) * 100);
+            const barPct = Math.round((Math.min(raw, max) / max) * 100);
             return (
               <div key={key}>
                 <div className="flex items-center justify-between mb-1">
@@ -74,23 +72,26 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
                       <span className="text-slate-600 text-xs ml-2">({desc})</span>
                     </div>
                   </div>
-                  {/* Number always matches bar: "val / max (pct%)" */}
                   <div className="flex items-baseline gap-1">
-                    <span className="text-white font-bold text-sm">{val}</span>
-                    <span className="text-slate-500 text-xs">/ {max}</span>
-                    <span className="text-slate-600 text-xs ml-1">({pct}%)</span>
+                    <span className="text-white font-bold text-sm">{raw}</span>
+                    <span className="text-slate-500 text-xs ml-1">nearby</span>
                   </div>
                 </div>
                 <div className="h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500/70 rounded-full"
-                    style={{ width: `${pct}%`, transition: "width 1s ease-out" }}
+                    style={{ width: `${barPct}%`, transition: "width 1s ease-out" }}
                   />
                 </div>
               </div>
             );
           })}
         </div>
+        {signals.trafficEstimationMethod && (
+          <p className="text-slate-600 text-xs mt-3 italic leading-relaxed">
+            ℹ️ {signals.trafficEstimationMethod}
+          </p>
+        )}
       </div>
 
       {/* Market saturation */}

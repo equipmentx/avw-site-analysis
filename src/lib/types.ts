@@ -56,6 +56,7 @@ export interface TrafficSignals {
   nearbySchools: number;
   estimatedDailyTraffic: number;
   trafficScore: number;
+  trafficEstimationMethod?: string;
 }
 
 export interface LocationScore {
@@ -133,6 +134,23 @@ export interface InvestmentSuggestion {
   marketContext: string;
   dataTimestamp: string;
   sourceNote: string;
+  methodology?: string;
+}
+
+// ── AI / Rule-based investment decision ──────────────────────────────────────
+export interface AiDecision {
+  verdict: "INVEST" | "PROCEED WITH CAUTION" | "DO NOT INVEST";
+  budgetFeasible: boolean;
+  budgetUSD: number;
+  minimumRequiredUSD: number;
+  budgetAnalysis: string;
+  decisionSummary: string;
+  keyFactors: string[];
+  redFlags: string[];
+  greenFlags: string[];
+  calculationBreakdown: string;
+  recommendation: string;
+  poweredBy: "rules" | "claude" | "openai";
 }
 
 export interface SiteAnalysisResult {
@@ -148,6 +166,7 @@ export interface SiteAnalysisResult {
   reviewInsights: ReviewInsights;
   recommendations: Recommendation[];
   investmentSuggestion: InvestmentSuggestion;
+  budgetUSD?: number;
 }
 
 export interface ReviewInsights {

@@ -30,6 +30,10 @@ const InvestmentSuggestionPanel = dynamic(
   () => import("@/components/InvestmentSuggestion"),
   { ssr: false, loading: () => <div className="shimmer h-40 rounded-2xl" /> }
 );
+const FinalDecisionPanel = dynamic(
+  () => import("@/components/FinalDecision"),
+  { ssr: false, loading: () => <div className="shimmer h-80 rounded-3xl" /> }
+);
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
 function LoadingState({ address }: { address: string }) {
@@ -206,7 +210,7 @@ function AnalysisPageInner() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, budget: budget || undefined }),
+        body: JSON.stringify({ address, budget }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -354,7 +358,11 @@ function AnalysisPageInner() {
           subtitle="How each factor contributes to the overall rating"
           icon={<Target className="w-5 h-5 text-blue-400" />}
         >
-          <ScoreBreakdown components={score.components} />
+          <ScoreBreakdown
+            components={score.components}
+            coordinates={result.coordinates}
+            apiKey={apiKey}
+          />
         </Section>
 
         {/* ── Map ─────────────────────────────────────────────────── */}
@@ -480,6 +488,20 @@ function AnalysisPageInner() {
               <RecommendationCard key={rec.title} rec={rec} index={i} />
             ))}
           </div>
+        </Section>
+
+        {/* ── AI Final Decision ────────────────────────────────────── */}
+        <Section
+          title="Investment Decision"
+          subtitle="Feasibility verdict based on your budget, location score, and financial projections"
+          icon={<TrendingUp className="w-5 h-5 text-blue-400" />}
+        >
+          <FinalDecisionPanel
+            result={result}
+            budget={budget ? parseFloat(budget) : 0}
+            currency={currency}
+            rate={rate}
+          />
         </Section>
 
         {/* ── CTA ─────────────────────────────────────────────────── */}

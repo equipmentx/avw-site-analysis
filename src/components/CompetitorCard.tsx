@@ -1,6 +1,6 @@
 "use client";
 
-import { Star, MapPin, Clock, TrendingDown, TrendingUp } from "lucide-react";
+import { Star, MapPin, TrendingDown, TrendingUp, ExternalLink } from "lucide-react";
 import type { CompetitorAnalysis } from "@/lib/types";
 
 interface CompetitorCardProps {
@@ -199,6 +199,18 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
             </div>
           </div>
         )}
+
+        {/* View on Google Maps */}
+        <a
+          href={`https://www.google.com/maps/place/?q=place_id:${place.place_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-auto flex items-center justify-center gap-2 border border-slate-600/40 hover:border-blue-500/50 bg-slate-700/20 hover:bg-blue-500/10 text-slate-400 hover:text-blue-400 text-xs font-semibold py-2.5 rounded-xl transition-all duration-200"
+        >
+          <MapPin className="w-3 h-3" />
+          View on Google Maps
+          <ExternalLink className="w-3 h-3" />
+        </a>
 
         {/* Strong competitor warning */}
         {sentiment.topComplaints.length === 0 && reviewCount > 50 && (

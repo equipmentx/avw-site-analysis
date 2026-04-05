@@ -10,6 +10,8 @@ interface ScoreBreakdownProps {
     market: number;
     financial: number;
   };
+  coordinates?: { lat: number; lng: number };
+  apiKey?: string;
 }
 
 const COMPONENT_META = {
@@ -17,13 +19,14 @@ const COMPONENT_META = {
     label: "Traffic Volume",
     color: "#3b82f6",
     desc: "Daily cars passing the site",
+    // Image is dynamically replaced with Street View of the actual address
     img: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=80&h=80&q=80",
   },
   competition: {
     label: "Competition Gap",
     color: "#a855f7",
     desc: "Lack of nearby competitors",
-    img: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=80&h=80&q=80",
+    img: "https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=80&h=80&q=80",
   },
   opportunity: {
     label: "Opportunity",
@@ -35,7 +38,8 @@ const COMPONENT_META = {
     label: "Market Activity",
     color: "#f59e0b",
     desc: "Commercial density nearby",
-    img: "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&w=80&h=80&q=80",
+    // Car wash specific image
+    img: "https://images.unsplash.com/photo-1520340356584-f9917d1eea6f?auto=format&fit=crop&w=80&h=80&q=80",
   },
   financial: {
     label: "Financial Viability",
@@ -45,7 +49,11 @@ const COMPONENT_META = {
   },
 };
 
-export default function ScoreBreakdown({ components }: ScoreBreakdownProps) {
+export default function ScoreBreakdown({ components, coordinates, apiKey }: ScoreBreakdownProps) {
+  // Street View image URL for the actual address — changes with every new location
+  const streetViewImg = coordinates && apiKey
+    ? `https://maps.googleapis.com/maps/api/streetview?size=80x80&location=${coordinates.lat},${coordinates.lng}&fov=90&pitch=5&key=${apiKey}`
+    : null;
   const [triggered, setTriggered] = useState(false);
   const [animated, setAnimated] = useState<Record<string, number>>({
     traffic: 0, competition: 0, opportunity: 0, market: 0, financial: 0,
@@ -97,13 +105,17 @@ export default function ScoreBreakdown({ components }: ScoreBreakdownProps) {
 
         return (
           <div key={key} className="flex items-center gap-4">
-            {/* Real image thumbnail */}
+            {/* Image thumbnail — traffic category uses live Street View of the actual address */}
             <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-slate-600/40">
               <img
-                src={meta.img}
-                alt={meta.label}
+                src={key === "traffic" && streetViewImg ? streetViewImg : meta.img}
+                alt={key === "traffic" && streetViewImg ? "Street view of your location" : meta.label}
                 className="w-full h-full object-cover"
                 loading="lazy"
+                onError={(e) => {
+                  // Fallback to static image if Street View unavailable
+                  (e.target as HTMLImageElement).src = meta.img;
+                }}
               />
             </div>
 

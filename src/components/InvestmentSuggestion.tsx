@@ -114,6 +114,20 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
       <div className="bg-slate-800/30 border border-slate-700/20 rounded-2xl p-5 space-y-3">
         <h4 className="text-white font-bold text-sm">How This Was Calculated</h4>
         <p className="text-slate-300 text-sm leading-relaxed">{data.rationale}</p>
+
+        {/* AI-generated methodology — expandable */}
+        {data.methodology && (
+          <details className="group">
+            <summary className="list-none flex items-center gap-1.5 cursor-pointer text-blue-400 text-xs font-semibold hover:text-blue-300 transition-colors">
+              <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
+              View AI Cost Methodology
+            </summary>
+            <p className="text-slate-300 text-sm leading-relaxed mt-2 pl-4 border-l-2 border-blue-500/30">
+              {data.methodology}
+            </p>
+          </details>
+        )}
+
         <p className="text-slate-400 text-sm leading-relaxed">{data.marketContext}</p>
 
         {/* Live data badge */}
@@ -130,6 +144,7 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
       <div className="bg-yellow-500/5 border border-yellow-500/15 rounded-xl p-4">
         <p className="text-yellow-300/80 text-xs leading-relaxed">
           <span className="font-bold">Data Sources:</span> {data.sourceNote}
+          {data.methodology && " · AI cost analysis: Claude claude-sonnet-4-6 (Anthropic)."}
         </p>
         <p className="text-slate-500 text-xs mt-2">
           Analysis generated: {new Date(data.dataTimestamp).toLocaleString()}

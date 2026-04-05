@@ -8,6 +8,7 @@ import {
   scoreTrafficSignals,
 } from "@/lib/scoring";
 import { runFinancialModel } from "@/lib/financialModel";
+import { getCountry } from "@/lib/countryData";
 import type {
   PlaceResult,
   TrafficSignals,
@@ -18,42 +19,31 @@ import type {
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? "";
 const BASE_URL = "https://maps.googleapis.com/maps/api";
 
-// ── Country cost multipliers (relative to US = 1.0) ──────────────────────────
-// Based on published construction cost indices, land valuations, and labor rates
-const COUNTRY_DATA: Record<string, { multiplier: number; name: string; context: string }> = {
-  US: { multiplier: 1.00, name: "United States",    context: "US market — benchmark pricing with high land and labor costs." },
-  GB: { multiplier: 0.88, name: "United Kingdom",   context: "UK market — slightly lower land costs outside London, comparable equipment costs." },
-  AU: { multiplier: 0.92, name: "Australia",         context: "Australian market — high labor costs but competitive equipment sourcing." },
-  CA: { multiplier: 0.93, name: "Canada",            context: "Canadian market — similar to US with regional cost variations." },
-  AE: { multiplier: 0.78, name: "UAE",               context: "UAE market — lower construction labor, moderate land costs in commercial zones." },
-  SA: { multiplier: 0.72, name: "Saudi Arabia",      context: "Saudi market — lower labor costs, strong government infrastructure support." },
-  ZA: { multiplier: 0.22, name: "South Africa",      context: "South African market — significantly lower land and labor costs vs US." },
-  NG: { multiplier: 0.14, name: "Nigeria",           context: "Nigerian market — lower base costs but factor in generator, security, and import duties on equipment." },
-  GH: { multiplier: 0.13, name: "Ghana",             context: "Ghanaian market — attractive entry costs, growing middle-class demand for car wash services." },
-  KE: { multiplier: 0.11, name: "Kenya",             context: "Kenyan market — very low land and labor costs, but factor in equipment import duties." },
-  IN: { multiplier: 0.18, name: "India",             context: "Indian market — low labor and construction costs, large urbanizing consumer base." },
-  BR: { multiplier: 0.34, name: "Brazil",            context: "Brazilian market — moderate costs, strong car culture and urban density." },
-  MX: { multiplier: 0.30, name: "Mexico",            context: "Mexican market — lower costs than US, proximity to US supply chains for equipment." },
-  JP: { multiplier: 0.95, name: "Japan",             context: "Japanese market — high precision equipment standards, premium consumer expectations." },
-  CN: { multiplier: 0.35, name: "China",             context: "Chinese market — low construction costs but rapidly rising land costs in Tier 1 cities." },
-  DE: { multiplier: 0.82, name: "Germany",           context: "German market — high labor costs offset by efficient construction practices." },
-  FR: { multiplier: 0.80, name: "France",            context: "French market — moderate land costs outside Paris, established car wash industry." },
-  NL: { multiplier: 0.85, name: "Netherlands",       context: "Dutch market — premium real estate costs, environmentally regulated operations." },
-  SG: { multiplier: 0.90, name: "Singapore",         context: "Singapore market — very high land costs, strong per-capita vehicle ownership." },
-  EM: { multiplier: 0.50, name: "Emerging Market",   context: "Emerging market — estimate based on regional cost indices. Verify with local contractors." },
-};
-
 // ── Google Places helpers ─────────────────────────────────────────────────────
+// Each request gets a 12-second timeout so a slow connection doesn't hang the whole analysis.
+// On network failure the helpers return empty arrays / null — analysis degrades gracefully.
+async function gFetch(url: string): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchPlacesNearby(lat: number, lng: number, type: string, radius = 5000): Promise<PlaceResult[]> {
   const url = new URL(`${BASE_URL}/place/nearbysearch/json`);
   url.searchParams.set("location", `${lat},${lng}`);
   url.searchParams.set("radius", radius.toString());
   url.searchParams.set("type", type);
   url.searchParams.set("key", GOOGLE_API_KEY);
-  const res = await fetch(url.toString());
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.results ?? [];
+  const data = await gFetch(url.toString());
+  return data?.results ?? [];
 }
 
 async function fetchPlaceDetails(placeId: string): Promise<PlaceResult | null> {
@@ -61,10 +51,8 @@ async function fetchPlaceDetails(placeId: string): Promise<PlaceResult | null> {
   url.searchParams.set("place_id", placeId);
   url.searchParams.set("fields", "place_id,name,vicinity,formatted_address,geometry,rating,user_ratings_total,reviews,opening_hours,photos,business_status,types,price_level");
   url.searchParams.set("key", GOOGLE_API_KEY);
-  const res = await fetch(url.toString());
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.result ?? null;
+  const data = await gFetch(url.toString());
+  return data?.result ?? null;
 }
 
 async function geocodeAddress(address: string): Promise<{
@@ -74,10 +62,8 @@ async function geocodeAddress(address: string): Promise<{
   const url = new URL(`${BASE_URL}/geocode/json`);
   url.searchParams.set("address", address);
   url.searchParams.set("key", GOOGLE_API_KEY);
-  const res = await fetch(url.toString());
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!data.results?.[0]) return null;
+  const data = await gFetch(url.toString());
+  if (!data?.results?.[0]) return null;
 
   const components = data.results[0].address_components ?? [];
   const countryComp = components.find((c: any) => c.types.includes("country"));
@@ -85,7 +71,7 @@ async function geocodeAddress(address: string): Promise<{
                    ?? components.find((c: any) => c.types.includes("administrative_area_level_1"));
 
   const countryCode = countryComp?.short_name ?? "US";
-  const countryName = COUNTRY_DATA[countryCode]?.name ?? countryComp?.long_name ?? "Unknown";
+  const countryName = getCountry(countryCode).name ?? countryComp?.long_name ?? "Unknown";
   const city        = cityComp?.long_name ?? "this city";
 
   const { lat, lng } = data.results[0].geometry.location;
@@ -98,7 +84,7 @@ function buildInvestmentSuggestion(
   city: string,
   trafficSignals: TrafficSignals
 ): InvestmentSuggestion {
-  const country    = COUNTRY_DATA[countryCode] ?? COUNTRY_DATA["EM"];
+  const country    = getCountry(countryCode);
   const multiplier = country.multiplier;
 
   // Urban density score
@@ -171,6 +157,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Investment amount is required — no analysis without budget context
+    if (!budget) {
+      return NextResponse.json(
+        { error: "Investment amount is required. Please enter the amount you plan to invest before running the analysis." },
+        { status: 400 }
+      );
+    }
+
     // Resolve coordinates + country
     let coordinates: { lat: number; lng: number };
     let resolvedAddress = address;
@@ -214,8 +208,48 @@ export async function POST(req: NextRequest) {
       fetchPlacesNearby(centerLat, centerLng, "school",                  3219),
     ]);
 
-    const commercialDensity = gasStations.length + grocery.length + fastFood.length;
-    const estimatedDailyTraffic = Math.max(2000, Math.min(25000, commercialDensity * 600 + gasStations.length * 1500));
+    // ── Live traffic estimation using Google Places review volume ────────────
+    // Review counts on Google Maps correlate strongly with actual foot/vehicle traffic:
+    // a gas station with 3,000+ reviews is on a major arterial; one with 50 reviews is quiet.
+    // We use the average review count per place type as a per-location traffic signal.
+    const avgGasReviews  = gasStations.length
+      ? gasStations.reduce((s, p) => s + (p.user_ratings_total ?? 0), 0) / gasStations.length : 0;
+    const avgFoodReviews = fastFood.length
+      ? fastFood.reduce((s, p) => s + (p.user_ratings_total ?? 0), 0) / fastFood.length : 0;
+    const avgGroceryReviews = grocery.length
+      ? grocery.reduce((s, p) => s + (p.user_ratings_total ?? 0), 0) / grocery.length : 0;
+    const avgShoppingReviews = shopping.length
+      ? shopping.reduce((s, p) => s + (p.user_ratings_total ?? 0), 0) / shopping.length : 0;
+
+    // Calibration: avg gas station reviews map to US AADT benchmarks:
+    //   <100 reviews  → quiet local road  (~2,000–4,000 AADT)
+    //   100–500        → suburban arterial (~4,000–10,000 AADT)
+    //   500–1500       → busy commercial  (~10,000–18,000 AADT)
+    //   1500+          → major corridor   (~18,000–25,000 AADT)
+    const reviewBasedTraffic = Math.round(
+      avgGasReviews     * 9.5 +   // gas stations: strongest traffic signal
+      avgFoodReviews    * 3.2 +   // fast food: commuter stops
+      avgGroceryReviews * 4.5 +   // grocery: regular destination traffic
+      avgShoppingReviews * 2.0    // shopping: destination/weekend traffic
+    );
+
+    // Density floor (in case area has 0 reviews — new or sparse listings)
+    const densityFloor =
+      gasStations.length * 800 + grocery.length * 500 +
+      fastFood.length * 200 + shopping.length * 400 + schools.length * 150;
+
+    // Blend: 70% review-based (real data) + 30% density floor (safety net)
+    const estimatedDailyTraffic = Math.max(2_000, Math.min(25_000,
+      Math.round(reviewBasedTraffic * 0.7 + densityFloor * 0.3)
+    ));
+
+    const trafficEstimationMethod =
+      `Estimated from live Google Maps review volume for this area: ` +
+      `avg gas station reviews: ${Math.round(avgGasReviews)} · ` +
+      `avg restaurant reviews: ${Math.round(avgFoodReviews)} · ` +
+      `avg grocery reviews: ${Math.round(avgGroceryReviews)}. ` +
+      `Higher review counts = busier road. ` +
+      `Formula: review signal ×70% + place density ×30%, capped at 25,000/day.`;
 
     const trafficSignals: TrafficSignals = {
       nearbyGasStations:   gasStations.length,
@@ -224,6 +258,7 @@ export async function POST(req: NextRequest) {
       nearbyShopping:      shopping.length,
       nearbySchools:       schools.length,
       estimatedDailyTraffic,
+      trafficEstimationMethod,
       trafficScore: scoreTrafficSignals({
         nearbyGasStations: gasStations.length,
         nearbyGroceryStores: grocery.length,
@@ -235,8 +270,8 @@ export async function POST(req: NextRequest) {
       }),
     };
 
-    // Financial model
-    const investmentBudget = budget ? parseFloat(budget) : undefined;
+    // Financial model — budget is guaranteed to exist at this point (validated above)
+    const investmentBudget = parseFloat(budget);
     const financial = runFinancialModel(estimatedDailyTraffic, investmentBudget);
     const financialViable = financial.year1EBITDA > 0;
 
@@ -261,11 +296,16 @@ export async function POST(req: NextRequest) {
       reviewInsights,
       recommendations,
       investmentSuggestion,
+      budgetUSD: investmentBudget,
     };
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error("Analysis error:", err);
-    return NextResponse.json({ error: "Internal server error during analysis" }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Analysis error:", message, err);
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === "development" ? message : "Internal server error during analysis" },
+      { status: 500 }
+    );
   }
 }

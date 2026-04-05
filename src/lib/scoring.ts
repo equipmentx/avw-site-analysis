@@ -341,9 +341,23 @@ export function buildReviewInsights(competitors: CompetitorAnalysis[]): ReviewIn
   if (dominantComplaints.some((c) => c.category === "Vehicle Damage"))
     missingServices.push("Touchless / Soft-Brush Wash Option");
 
-  const saturation = competitors.length;
-  const marketSaturationLevel =
-    saturation <= 2 ? "LOW" : saturation <= 5 ? "MEDIUM" : "HIGH";
+  // ── Weighted saturation score ────────────────────────────────────────────
+  // Counts alone are misleading — a single 4.8★ competitor 0.3 miles away
+  // saturates the market more than 5 mediocre ones at 4+ miles.
+  // Score each competitor by: strength × proximity weight × review authority.
+  // Proximity weights: <0.5mi=3.0, 0.5–1mi=2.0, 1–2mi=1.2, 2–3.5mi=0.7, >3.5mi=0.3
+  const weightedSaturation = competitors.reduce((total, c) => {
+    const d = c.distanceMiles;
+    const proximityWeight = d < 0.5 ? 3.0 : d < 1.0 ? 2.0 : d < 2.0 ? 1.2 : d < 3.5 ? 0.7 : 0.3;
+    const ratingStrength  = (c.place.rating ?? 3.0) / 5.0;           // 0–1
+    const reviewAuthority = Math.min((c.place.user_ratings_total ?? 0) / 500, 1.0); // 0–1, caps at 500 reviews
+    const strengthNorm    = c.strengthScore / 100;                    // 0–1
+    return total + proximityWeight * (ratingStrength * 0.5 + reviewAuthority * 0.25 + strengthNorm * 0.25);
+  }, 0);
+
+  // Scale: 0–2.5 = LOW, 2.5–5.5 = MEDIUM, 5.5+ = HIGH
+  const marketSaturationLevel: "LOW" | "MEDIUM" | "HIGH" =
+    weightedSaturation < 2.5 ? "LOW" : weightedSaturation < 5.5 ? "MEDIUM" : "HIGH";
 
   const premiumOpportunity = avgRating < 3.8 || dominantComplaints.length >= 3;
   const unlimitedPlanDemand =

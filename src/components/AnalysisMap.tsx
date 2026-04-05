@@ -19,7 +19,28 @@ declare global {
 export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [activeMapType, setActiveMapType] = useState<"roadmap" | "satellite" | "terrain">("roadmap");
+  const [trafficOn, setTrafficOn] = useState(false);
+
+  const handleMapTypeChange = (type: "roadmap" | "satellite" | "terrain") => {
+    mapInstanceRef.current?.setMapTypeId(type);
+    setActiveMapType(type);
+  };
+
+  const handleTrafficToggle = () => {
+    if (!mapInstanceRef.current) return;
+    if (trafficOn) {
+      trafficLayerRef.current?.setMap(null);
+    } else {
+      if (!trafficLayerRef.current) {
+        trafficLayerRef.current = new window.google.maps.TrafficLayer();
+      }
+      trafficLayerRef.current.setMap(mapInstanceRef.current);
+    }
+    setTrafficOn((v) => !v);
+  };
 
   useEffect(() => {
     if (!apiKey || apiKey === "YOUR_GOOGLE_MAPS_API_KEY_HERE") return;
@@ -45,7 +66,7 @@ export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMap
         ],
         disableDefaultUI: false,
         zoomControl: true,
-        mapTypeControl: false,
+        mapTypeControl: false,   // we use our own custom control
         streetViewControl: false,
         fullscreenControl: true,
       });
@@ -106,6 +127,10 @@ export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMap
         const rating = place.rating ? `⭐ ${place.rating} (${place.user_ratings_total?.toLocaleString() ?? 0} reviews)` : "No rating";
         const complaints = sentiment.topComplaints.slice(0, 2).map((c) => `${c.emoji} ${c.category}`).join("<br>");
 
+        const mapsUrl = place.place_id
+          ? `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
+          : `https://maps.google.com/maps?q=${pos.lat},${pos.lng}`;
+
         const infoContent = `
           <div style="background:#1e293b;color:#f1f5f9;padding:12px 16px;border-radius:12px;font-family:Inter,sans-serif;min-width:200px;border:1px solid ${color}40;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:#fff">${place.name}</div>
@@ -113,6 +138,10 @@ export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMap
             <div style="font-size:12px;margin-bottom:4px;">${rating}</div>
             <div style="font-size:11px;color:#94a3b8;">${distanceMiles.toFixed(1)} miles away</div>
             ${complaints ? `<div style="margin-top:8px;font-size:11px;color:#fbbf24;">Complaints:<br>${complaints}</div>` : ""}
+            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer"
+               style="display:inline-flex;align-items:center;gap:4px;margin-top:10px;font-size:11px;color:#60a5fa;text-decoration:none;font-weight:600;">
+              📍 Open in Google Maps →
+            </a>
           </div>
         `;
 
@@ -168,6 +197,36 @@ export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMap
   return (
     <div className="relative">
       <div ref={mapRef} className="w-full h-[480px] rounded-2xl overflow-hidden border border-slate-700/40" />
+
+      {/* Map type + traffic controls */}
+      {mapLoaded && (
+        <div className="absolute top-4 left-4 flex items-center gap-1 bg-slate-900/90 backdrop-blur-sm border border-slate-700/40 rounded-xl p-1 z-10">
+          {(["roadmap", "satellite", "terrain"] as const).map((type) => (
+            <button
+              key={type}
+              onClick={() => handleMapTypeChange(type)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                activeMapType === type
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+              }`}
+            >
+              {type === "roadmap" ? "Map" : type.charAt(0).toUpperCase() + type.slice(1)}
+            </button>
+          ))}
+          <div className="w-px h-5 bg-slate-700 mx-0.5" />
+          <button
+            onClick={handleTrafficToggle}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              trafficOn
+                ? "bg-orange-500 text-white"
+                : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+            }`}
+          >
+            Traffic
+          </button>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-slate-900/90 backdrop-blur-sm border border-slate-700/40 rounded-xl p-3 flex flex-col gap-2">

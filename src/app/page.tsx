@@ -224,6 +224,7 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
   const [error, setError] = useState("");
+  const [budgetError, setBudgetError] = useState("");
   const [bgIndex, setBgIndex] = useState(0);
   const [bgFading, setBgFading] = useState(false);
   const [currency, setCurrency] = useState<CurrencyOption>(CURRENCIES[0]);
@@ -284,11 +285,14 @@ export default function LandingPage() {
   const handleAnalyze = () => {
     const val = inputRef.current?.value || address;
     if (!val.trim()) { setError("Please enter an address or location."); return; }
+    if (!budget.trim()) {
+      setBudgetError("Investment amount is required to run the analysis.");
+      return;
+    }
     setError("");
+    setBudgetError("");
     setLoading(true);
-    const params = new URLSearchParams({ address: val });
-    if (budget) params.set("budget", budget);
-    params.set("currency", currency.code);
+    const params = new URLSearchParams({ address: val, budget, currency: currency.code });
     router.push(`/analysis?${params.toString()}`);
   };
 
@@ -365,14 +369,17 @@ export default function LandingPage() {
                   onChange={(e) => setAddress(e.target.value)}
                 />
               </div>
-              <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
+              <div className={`flex items-center gap-2 px-3 py-2 border-t ${budgetError ? "border-red-500/50" : "border-slate-700/40"}`}>
                 <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
                 <input
                   type="text"
-                  placeholder={`Investment budget (optional) — e.g., ${currency.symbol}3,500,000`}
+                  placeholder={`Investment amount required — e.g., ${currency.symbol}3,500,000`}
                   className="flex-1 bg-transparent text-slate-200 placeholder-slate-500 text-sm outline-none"
                   value={budget ? parseInt(budget).toLocaleString() : ""}
-                  onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
+                  onChange={(e) => {
+                    setBudget(e.target.value.replace(/[^0-9]/g, ""));
+                    if (budgetError) setBudgetError("");
+                  }}
                 />
                 {budget && (
                   <span className="text-xs text-emerald-400 font-semibold whitespace-nowrap">
@@ -380,6 +387,11 @@ export default function LandingPage() {
                   </span>
                 )}
               </div>
+              {budgetError && (
+                <p className="text-red-400 text-xs px-3 pb-1 flex items-center gap-1">
+                  <span>⚠</span> {budgetError}
+                </p>
+              )}
               <button
                 onClick={handleAnalyze}
                 disabled={loading}
