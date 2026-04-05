@@ -60,8 +60,10 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
         <h4 className="text-white font-semibold text-sm mb-3">Nearby Traffic Generators</h4>
         <div className="space-y-3">
           {SIGNAL_META.map(({ key, label, icon, desc, max }) => {
-            const val = signals[key as keyof TrafficSignals] as number;
-            const pct = Math.min((val / max) * 100, 100);
+            // Cap at max — extras beyond the max don't improve the score
+            const raw = signals[key as keyof TrafficSignals] as number;
+            const val = Math.min(raw, max);
+            const pct = Math.round((val / max) * 100);
             return (
               <div key={key}>
                 <div className="flex items-center justify-between mb-1">
@@ -72,7 +74,12 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
                       <span className="text-slate-600 text-xs ml-2">({desc})</span>
                     </div>
                   </div>
-                  <span className="text-white font-bold text-sm">{val}</span>
+                  {/* Number always matches bar: "val / max (pct%)" */}
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-white font-bold text-sm">{val}</span>
+                    <span className="text-slate-500 text-xs">/ {max}</span>
+                    <span className="text-slate-600 text-xs ml-1">({pct}%)</span>
+                  </div>
                 </div>
                 <div className="h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
                   <div
