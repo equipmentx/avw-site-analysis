@@ -314,10 +314,12 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 backdrop-blur-md bg-black/25 border-b border-white/5">
         <button onClick={handleLogoClick} className="flex items-center gap-2 group" title="Refresh">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
-            <MapPin className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-bold text-lg text-white tracking-tight">CarWash Intel</span>
+          <img
+            src="/avw-logo.png"
+            alt="AVW Site Intel"
+            className="h-9 w-auto object-contain group-hover:scale-105 transition-transform"
+          />
+          <span className="font-bold text-white text-base tracking-tight">AVW Site Intel</span>
         </button>
 
         <div className="hidden md:flex items-center gap-6 text-sm text-slate-200">
@@ -349,7 +351,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-xl text-white/90 max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-            Enter any address in the world. CarWash Intel analyzes traffic, competitors,
+            Enter any address in the world. AVW Site Intel analyzes traffic, competitors,
             customer complaints, and financial potential, delivering a crystal clear
             GO or NO-GO verdict in under 30 seconds.
           </p>
@@ -519,7 +521,7 @@ export default function LandingPage() {
             </h2>
             {/* Pure white as requested */}
             <p className="text-white text-lg max-w-2xl mx-auto font-medium leading-relaxed">
-              Whether you are a nurse, a contractor, or a first-time investor, CarWash Intel
+              Whether you are a nurse, a contractor, or a first-time investor, AVW Site Intel
               speaks plain English and tells you exactly what to do next.
             </p>
           </div>
@@ -580,15 +582,16 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="relative z-10 border-t border-slate-700/50 py-8 px-4">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <button onClick={handleLogoClick} className="flex items-center gap-2 group">
-            <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-md flex items-center justify-center group-hover:scale-105 transition-transform">
-              <MapPin className="w-3 h-3 text-white" />
-            </div>
-            <span className="text-slate-200 text-sm font-semibold">CarWash Intel</span>
+          <button onClick={handleLogoClick} className="flex items-center group">
+            <img
+              src="/avw-logo.png"
+              alt="AVW Site Intel"
+              className="h-7 w-auto object-contain group-hover:scale-105 transition-transform"
+            />
           </button>
 
           <p className="text-slate-200 text-xs text-center font-medium">
-            &copy; 2026 CarWash Intel. Professional site analysis for car wash investors.
+            &copy; 2026 AVW Site Intel. Professional site analysis for car wash investors.
           </p>
 
           <p className="text-slate-200 text-xs font-medium">

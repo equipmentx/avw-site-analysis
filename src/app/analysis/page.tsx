@@ -247,7 +247,8 @@ function AnalysisPageInner() {
           </button>
 
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
-            <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0" />
+            <img src="/avw-logo.png" alt="AVW Site Intel" className="h-7 w-auto object-contain flex-shrink-0" />
+            <span className="hidden sm:inline font-bold text-white text-sm tracking-tight">AVW Site Intel</span>
             <span className="text-white text-sm font-medium truncate max-w-sm">{result.address}</span>
           </div>
 
@@ -519,7 +520,7 @@ function AnalysisPageInner() {
 
         {/* Footer note */}
         <p className="text-slate-700 text-xs text-center pb-4">
-          CarWash Intel · Powered by Google Maps Platform · For informational purposes only.
+          AVW Site Intel · Powered by Google Maps Platform · For informational purposes only.
           Projections are estimates based on industry benchmarks and should be verified by qualified professionals.
         </p>
       </div>
