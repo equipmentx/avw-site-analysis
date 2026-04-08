@@ -1,11 +1,77 @@
 /**
- * Financial Model derived from the 404.xlsx car wash investment spreadsheet.
- * Models a full-service express car wash operation over 5 years.
+ * Financial Model derived directly from the 404.xlsx car wash investment spreadsheet.
+ *
+ * HOW IT WORKS:
+ * 1. The user's budget is their Total Project Cost — the formula doesn't change, the budget drives it.
+ * 2. Based on the budget, we determine what TYPE of car wash is feasible.
+ * 3. The Excel operating model (pricing tiers, costs per car, salaries, SG&A) is FIXED.
+ * 4. Revenue is driven by traffic (from Google Maps location data), not by the budget.
+ * 5. The budget drives financing: 20% down payment, 80% bank loan at 7% for 20 years.
  */
 
 import type { FinancialProjection, FinancialAssumptions, YearlyProjection } from "./types";
 
-// ─── Pricing Tiers from Excel "Key Assumptions & Drivers" ───────────────────
+// ─── Car Wash Format Tiers ────────────────────────────────────────────────────
+// Budget determines what you can realistically build.
+// Operating parameters change per format — you can't run an express tunnel model
+// on a self-serve budget.
+
+export interface CarWashFormat {
+  id:          "none" | "self_serve" | "in_bay" | "mini_tunnel" | "express" | "premium";
+  name:        string;
+  description: string;
+  minBudgetUSD: number;
+  captureRate:  number;   // % of passing daily traffic that stops
+  avgRevPerCar: number;   // weighted avg revenue per wash (USD)
+  feasible:     boolean;
+}
+
+export function getCarWashFormat(budgetUSD: number): CarWashFormat {
+  if (budgetUSD >= 4_000_000) {
+    return {
+      id: "premium", name: "Premium Express Tunnel", feasible: true,
+      description: "Full-scale flagship tunnel (100ft+) with unlimited membership kiosks, free vacuums, and all amenities. The highest-revenue format in the industry.",
+      minBudgetUSD: 4_000_000, captureRate: 0.022, avgRevPerCar: 14.50,
+    };
+  }
+  if (budgetUSD >= 2_500_000) {
+    return {
+      id: "express", name: "Express Tunnel (Standard)", feasible: true,
+      description: "The industry's proven sweet spot — a conveyor-belt tunnel (80–100ft) with pay stations and free vacuums. This is exactly what the 404 Excel model is built around.",
+      minBudgetUSD: 2_500_000, captureRate: 0.02, avgRevPerCar: 12.96,
+    };
+  }
+  if (budgetUSD >= 1_500_000) {
+    return {
+      id: "mini_tunnel", name: "Mini Express Tunnel", feasible: true,
+      description: "A shorter conveyor-belt tunnel (40–70ft). Lower throughput than the standard express but still a proper automated wash. Good for smaller markets.",
+      minBudgetUSD: 1_500_000, captureRate: 0.015, avgRevPerCar: 11.50,
+    };
+  }
+  if (budgetUSD >= 800_000) {
+    return {
+      id: "in_bay", name: "In-Bay Automatic", feasible: true,
+      description: "A rollover machine — customers pull in and stay in the car while the machine moves over them. Lower throughput (10–15 cars/hr) but much lower build cost.",
+      minBudgetUSD: 800_000, captureRate: 0.01, avgRevPerCar: 10.00,
+    };
+  }
+  if (budgetUSD >= 300_000) {
+    return {
+      id: "self_serve", name: "Self-Serve Bays", feasible: true,
+      description: "Customers wash their own car using your wands and foamers. Lowest revenue per car, but lowest build cost. Often used as a stepping stone to a larger format.",
+      minBudgetUSD: 300_000, captureRate: 0.005, avgRevPerCar: 6.00,
+    };
+  }
+  return {
+    id: "none", name: "Not Feasible", feasible: false,
+    description: "Below the minimum investment needed to build any form of car wash facility. Consider increasing your budget or partnering with another investor.",
+    minBudgetUSD: 300_000, captureRate: 0, avgRevPerCar: 0,
+  };
+}
+
+// ─── Excel-Derived Operating Constants (FIXED — do not scale with budget) ─────
+
+// Pricing tiers from "Key Assumptions & Drivers" sheet
 const PRICING_TIERS = [
   { name: "Bronze",        price: 9,     varChem: 0.58, mixPct: 0.50 },
   { name: "Silver",        price: 12,    varChem: 1.00, mixPct: 0.10 },
@@ -14,203 +80,206 @@ const PRICING_TIERS = [
 ];
 
 const UNLIMITED_TIERS = [
-  { name: "Gold Unlimited",price: 19.99, varChem: 1.50, mixPct: 0.70 },
-  { name: "BIC Unlimited", price: 40,    varChem: 2.09, mixPct: 0.30 },
+  { name: "Gold Unlimited", price: 19.99, varChem: 1.50, mixPct: 0.70 },
+  { name: "BIC Unlimited",  price: 40,    varChem: 2.09, mixPct: 0.30 },
 ];
 
-// Weighted averages from Excel
-const WTD_AVG_PRICE_PER_CAR   = 12.96;  // standard wash weighted avg
-const WTD_AVG_PRICE_UNLIMITED = 25.993; // unlimited plan weighted avg
-const UNLIMITED_PLAN_PRICE    = 25.993; // blended for model
-const VAR_CHEM_COST_PER_CAR   = 1.167;
+// Weighted averages from Excel row 18 & 21
+const WTD_AVG_PRICE_PER_CAR   = 12.96;   // express tunnel standard wash avg
+const WTD_AVG_PRICE_UNLIMITED = 25.993;  // unlimited plan weighted avg
+const VAR_CHEM_COST_PER_CAR   = 1.167;   // weighted chemical cost per car
 
-// ─── Operating Cost Assumptions (per car, from Excel) ────────────────────────
-const VARIABLE_COST_PER_CAR = {
-  utilities:    0.66,
-  repairsMaint: 0.29,
+// Variable costs per car from Excel rows 46-55
+const VAR_COST_PER_CAR = {
+  utilities:    0.66 * 0.9,  // 90% allocated to COGS
+  repairsMaint: 0.29 * 0.5,  // 50% allocated to COGS
   autoClaims:   0.06,
   supplies:     0.04,
-  wtdAvgChem:   1.23,  // blended chemical cost
-  total:        2.28,  // total variable excl. chemicals
+};
+const TOTAL_VAR_COST_PER_CAR = Object.values(VAR_COST_PER_CAR).reduce((a, b) => a + b, 0);
+
+// SG&A from Excel rows 62-67
+const FIXED_SGA = {
+  marketingMonthly:       2_500,
+  bankChargesMonthly:     200,
+  insuranceAnnual:        30_000,
+  officeMiscMonthly:      1_500,
+  computerInternetMthly:  1_500,
 };
 
-// ─── Fixed SG&A Assumptions (monthly/annual) ─────────────────────────────────
-const FIXED_COSTS = {
-  marketingOneTime:     50_000,
-  marketingMonthly:     2_500,
-  bankChargesMonthly:   200,
-  insuranceAnnual:      30_000,
-  officeMiscMonthly:    1_500,
-  computerInternetMtly: 1_500,
-};
-
-// ─── Salary Assumptions ──────────────────────────────────────────────────────
+// Salary from Excel rows 71-76
 const LABOR = {
-  siteManager: { hourlyRate: 30, hoursPerYear: 2080, sgaAlloc: 0.5 },
-  fullTime1:   { hourlyRate: 16, hoursPerYear: 2080, sgaAlloc: 1.0 },
-  fullTime2:   { hourlyRate: 16, hoursPerYear: 2080, sgaAlloc: 1.0 },
-  burdenTaxes: 0.097,
-  burdenBenefits: 0.033,
+  siteManager: { hourlyRate: 30, hoursPerYear: 2080 },
+  fullTime1:   { hourlyRate: 16, hoursPerYear: 2080 },
+  fullTime2:   { hourlyRate: 16, hoursPerYear: 2080 },
+  burden:      0.097 + 0.033,  // taxes + benefits
+  yr2Raise:    0.08,           // 8% annual raise for FT staff (Excel row 73)
 };
 
-// ─── CapEx Defaults ──────────────────────────────────────────────────────────
-export const DEFAULT_CAPEX = {
-  land:             875_000,
-  tapCityFees:      250_000,
-  siteImprovements: 150_000,
-  equipment:      1_200_000,
-  construction:   1_080_000,
-  contingency:       0.10,   // 10% on construction
-  totalBase:      3_663_000,
-};
-
-// ─── Financing Defaults ───────────────────────────────────────────────────────
-const FINANCING = {
-  downPaymentPct:   0.20,
-  loanFeePct:       0.02,
-  annualInterest:   0.07,
-  loanTermYears:    20,
-  taxDrawsPct:      0.25,
-};
-
-// ─── Traffic & Capture Assumptions ───────────────────────────────────────────
-const TRAFFIC = {
-  captureRate:       0.02,   // 2% of daily traffic gets captured
-  daysPerMonth:      26,
-  annualEscalator:   0.02,
-  avgWashesPerMonth: 2.5,
-};
-
-// ─── Subscriber Ramp ─────────────────────────────────────────────────────────
-const SUBSCRIBER_RAMP = {
-  newPerMonth:     100,
-  initialMonths:   12,
-  annualGrowth:    0.08,
-};
-
-// ─── Depreciation ─────────────────────────────────────────────────────────────
+// Depreciation from Excel rows 58-59
 const DEPR = {
-  buildingYears:  30,
+  buildingYears:   30,
   equipmentYears:  7,
+};
+
+// Traffic & subscriber model from Excel rows 7-27
+const TRAFFIC = {
+  annualEscalator:   0.02,   // 2% traffic growth per year (Excel row 7)
+  daysPerMonth:      26,     // operational days (Excel row 8)
+  discountRate:      0.10,   // coupons/discounts (Excel row 9)
+  ccFeeRate:         0.02,   // credit card processing (Excel row 10)
+  newSubsPerMonth:   100,    // new unlimited subscribers per month (Excel row 26)
+  avgWashesPerMonth: 2.5,    // avg washes per subscriber per month (Excel row 23)
+  annualSubGrowth:   0.08,   // subscriber growth after year 1 (Excel row 28)
+};
+
+// Financing from Excel rows 92-111
+const FINANCING = {
+  downPaymentPct:  0.20,   // 20% down payment
+  loanFeePct:      0.02,   // 2% loan origination fee
+  annualInterest:  0.07,   // 7% annual interest rate
+  loanTermYears:   20,     // 20-year loan
+  propertyTaxRate: 0.015,  // 1.5% of land value per year
+  landPct:         0.239,  // land as % of Excel baseline (875K / 3663K)
+  reinvestYr1:     0.03,   // 3% reinvestment year 1 (Excel row 86)
+  reinvestYr2to5:  0.06,   // 6% reinvestment years 2-5 (Excel row 87)
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function calcMonthlyPayment(principal: number, annualRate: number, years: number): number {
+  if (principal <= 0) return 0;
   const r = annualRate / 12;
   const n = years * 12;
   return (principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
 }
 
-function calcAnnualLabor(): number {
-  const sm = LABOR.siteManager.hourlyRate * LABOR.siteManager.hoursPerYear;
-  const ft1 = LABOR.fullTime1.hourlyRate * LABOR.fullTime1.hoursPerYear;
-  const ft2 = LABOR.fullTime2.hourlyRate * LABOR.fullTime2.hoursPerYear;
+function calcAnnualLabor(year: number): number {
+  const sm  = LABOR.siteManager.hourlyRate * LABOR.siteManager.hoursPerYear;
+  const ft1 = LABOR.fullTime1.hourlyRate   * LABOR.fullTime1.hoursPerYear;
+  const ft2 = LABOR.fullTime2.hourlyRate   * LABOR.fullTime2.hoursPerYear;
   const base = sm + ft1 + ft2;
-  return base * (1 + LABOR.burdenTaxes + LABOR.burdenBenefits);
+  // Excel rows 73-74: FT staff get raises; site manager raise is separate
+  const raise = Math.pow(1 + LABOR.yr2Raise, Math.max(0, year - 1));
+  return base * raise * (1 + LABOR.burden);
 }
 
-function buildYearlyProjection(
-  year: number,
-  estimatedDailyTraffic: number,
-  capex: typeof DEFAULT_CAPEX,
-  loanAmount: number,
-  monthlyDebtService: number
+// ─── Single year projection ───────────────────────────────────────────────────
+
+function buildYearProjection(
+  year:              number,
+  baseDailyTraffic:  number,
+  format:            CarWashFormat,
+  landCost:          number,
+  equipmentCost:     number,
+  constructionCost:  number,
+  loanAmount:        number,
+  monthlyDebtService: number,
 ): YearlyProjection {
-  // Escalate traffic
-  const dailyTraffic = estimatedDailyTraffic * Math.pow(1 + TRAFFIC.annualEscalator, year - 1);
 
-  // Cars captured per month
-  const dailyCars = dailyTraffic * TRAFFIC.captureRate;
-  const monthlyStandardCars = dailyCars * TRAFFIC.daysPerMonth;
+  // Traffic grows 2%/year (Excel row 7)
+  const dailyTraffic = baseDailyTraffic * Math.pow(1 + TRAFFIC.annualEscalator, year - 1);
 
-  // Unlimited subscriber ramp
-  const unlimitedSubscribers = Math.min(
-    SUBSCRIBER_RAMP.newPerMonth * 12 * year * (1 + SUBSCRIBER_RAMP.annualGrowth * (year - 1)),
-    monthlyStandardCars * 0.4 // cap at 40% of traffic as unlimited
-  );
-  const unlimitedWashes = unlimitedSubscribers * TRAFFIC.avgWashesPerMonth * 12;
+  // Standard cars per period
+  const dailyCars   = dailyTraffic * format.captureRate;
+  const monthlyCars = dailyCars * TRAFFIC.daysPerMonth;
+  const annualStandardCars = monthlyCars * 12;
 
-  const annualStandardCars = monthlyStandardCars * 12;
+  // Unlimited subscribers ramp up over time
+  const subsPerMonth = TRAFFIC.newSubsPerMonth * Math.pow(1 + TRAFFIC.annualSubGrowth, year - 1);
+  const totalSubs = Math.min(subsPerMonth * 12 * year, annualStandardCars * 0.40); // cap at 40%
+  const unlimitedWashes = totalSubs * TRAFFIC.avgWashesPerMonth * 12;
+
   const totalAnnualCars = annualStandardCars + unlimitedWashes;
 
-  // Revenue
-  const standardRevenue = annualStandardCars * WTD_AVG_PRICE_PER_CAR;
-  const unlimitedRevenue = unlimitedSubscribers * UNLIMITED_PLAN_PRICE * 12;
-  const grossRevenue = standardRevenue + unlimitedRevenue;
-  // Apply discounts & CC fees
-  const netRevenue = grossRevenue * (1 - 0.10) * (1 - 0.02);
+  // Revenue — use format's avg revenue per car (scaled from Excel for non-express formats)
+  const revenueScale = format.avgRevPerCar / WTD_AVG_PRICE_PER_CAR;
+  const standardRevGross   = annualStandardCars * format.avgRevPerCar;
+  const unlimitedRevGross  = totalSubs * WTD_AVG_PRICE_UNLIMITED * revenueScale * 12;
+  const grossRevenue       = standardRevGross + unlimitedRevGross;
 
-  // COGS
-  const varChemCost = totalAnnualCars * VAR_CHEM_COST_PER_CAR;
-  const utilsCOGS   = totalAnnualCars * VARIABLE_COST_PER_CAR.utilities * 0.9;
-  const rmCOGS      = totalAnnualCars * VARIABLE_COST_PER_CAR.repairsMaint * 0.5;
-  const laborCOGS   = calcAnnualLabor() * Math.pow(1.08, year - 1);
-  const annualDeprEquip = capex.equipment / DEPR.equipmentYears;
-  const annualDeprBuild = capex.construction / DEPR.buildingYears;
-  const totalCOGS = varChemCost + utilsCOGS + rmCOGS + laborCOGS;
+  // Apply discounts and CC fees (Excel rows 9-10)
+  const netRevenue = grossRevenue * (1 - TRAFFIC.discountRate) * (1 - TRAFFIC.ccFeeRate);
+
+  // COGS — variable costs per car (FIXED from Excel, same for all formats)
+  const chemCost  = totalAnnualCars * VAR_CHEM_COST_PER_CAR;
+  const varCost   = totalAnnualCars * TOTAL_VAR_COST_PER_CAR;
+  const laborCOGS = calcAnnualLabor(year);
+  const totalCOGS = chemCost + varCost + laborCOGS;
 
   const grossProfit = netRevenue - totalCOGS;
 
-  // SG&A
+  // SG&A — fixed costs (from Excel, same for all formats)
   const fixedSGA =
-    FIXED_COSTS.marketingMonthly * 12 +
-    FIXED_COSTS.bankChargesMonthly * 12 +
-    FIXED_COSTS.insuranceAnnual +
-    FIXED_COSTS.officeMiscMonthly * 12 +
-    FIXED_COSTS.computerInternetMtly * 12;
+    FIXED_SGA.marketingMonthly    * 12 +
+    FIXED_SGA.bankChargesMonthly  * 12 +
+    FIXED_SGA.insuranceAnnual          +
+    FIXED_SGA.officeMiscMonthly   * 12 +
+    FIXED_SGA.computerInternetMthly * 12;
 
-  const propTax = capex.land * 0.015 * Math.pow(1.02, year - 1);
-  const totalSGA = fixedSGA + propTax;
+  // Property tax (Excel row 89: 1.5% of land, escalating 2%/yr)
+  const propTax = landCost * FINANCING.propertyTaxRate * Math.pow(1.02, year - 1);
 
-  const ebit = grossProfit - totalSGA;
-  const depreciation = annualDeprEquip + annualDeprBuild;
-  const ebitda = ebit + depreciation;
+  const totalSGA  = fixedSGA + propTax;
+  const ebit      = grossProfit - totalSGA;
 
-  // Interest
-  const annualInterest = monthlyDebtService * 12 - (loanAmount / (FINANCING.loanTermYears * 12)) * 12 * 0.3; // approx
-  const actualInterest = year <= 5
+  // Depreciation (Excel rows 58-59)
+  const deprBuilding   = constructionCost / DEPR.buildingYears;
+  const deprEquipment  = equipmentCost    / DEPR.equipmentYears;
+  const depreciation   = deprBuilding + deprEquipment;
+  const ebitda         = ebit + depreciation;
+
+  // Interest (approximated from Excel amortization schedule row 19+)
+  const annualInterest = year <= FINANCING.loanTermYears
     ? loanAmount * FINANCING.annualInterest * Math.pow(0.95, year - 1)
     : 0;
 
-  const ebt = ebit - actualInterest;
-  const netIncome = ebt; // No corp tax assumed (pass-through entity)
+  const ebt       = ebit - annualInterest;
+  const netIncome = ebt; // No corporate tax (pass-through entity, Excel row 32)
 
   const margin = netRevenue > 0 ? ebitda / netRevenue : 0;
 
   return {
-    year: year === 0 ? "Year 1" : `Year ${year}`,
-    revenue: Math.round(netRevenue),
-    cogs: Math.round(totalCOGS),
+    year:        `Year ${year}`,
+    revenue:     Math.round(netRevenue),
+    cogs:        Math.round(totalCOGS),
     grossProfit: Math.round(grossProfit),
-    sgna: Math.round(totalSGA),
-    ebitda: Math.round(ebitda),
-    netIncome: Math.round(netIncome),
-    cars: Math.round(totalAnnualCars),
-    margin: Math.round(margin * 100),
+    sgna:        Math.round(totalSGA),
+    ebitda:      Math.round(ebitda),
+    netIncome:   Math.round(netIncome),
+    cars:        Math.round(totalAnnualCars),
+    margin:      Math.round(margin * 100),
   };
 }
 
-// ─── Main Export ─────────────────────────────────────────────────────────────
+// ─── Main export ─────────────────────────────────────────────────────────────
 
 export function runFinancialModel(
   estimatedDailyTraffic: number,
-  investmentBudget?: number
+  investmentBudget?: number,
 ): FinancialProjection {
-  // Determine CapEx — scale land cost if budget provided
-  const capex = { ...DEFAULT_CAPEX };
-  if (investmentBudget && investmentBudget > 0) {
-    const scale = investmentBudget / capex.totalBase;
-    capex.land             = Math.round(capex.land * scale);
-    capex.equipment        = Math.round(capex.equipment * scale);
-    capex.construction     = Math.round(capex.construction * scale);
-    capex.siteImprovements = Math.round(capex.siteImprovements * scale);
-    capex.tapCityFees      = Math.round(capex.tapCityFees * scale);
-    capex.totalBase        = investmentBudget;
-  }
 
-  const contingencyAmount = Math.round(capex.construction * capex.contingency);
-  const totalProjectCost  = capex.totalBase + contingencyAmount;
+  const budget = investmentBudget && investmentBudget > 0 ? investmentBudget : 0;
+
+  // Determine what the user can build with their budget
+  const format = getCarWashFormat(budget);
+
+  // ── CapEx breakdown ─────────────────────────────────────────────────────────
+  // The user's budget IS the Total Project Cost.
+  // We split it using the same proportions as the Excel baseline:
+  //   Land          23.9%  ($875K / $3,663K)
+  //   Equipment     32.8%  ($1,200K / $3,663K)
+  //   Construction  29.5%  ($1,080K / $3,663K)
+  //   Fees + misc   13.8%  ($250K + $150K + contingency / $3,663K)
+  const totalBase         = budget > 0 ? budget : 3_663_000;
+  const landCost          = Math.round(totalBase * 0.239);
+  const equipmentCost     = Math.round(totalBase * 0.328);
+  const constructionCost  = Math.round(totalBase * 0.295);
+  const feesCost          = totalBase - landCost - equipmentCost - constructionCost;
+  const contingency       = Math.round(constructionCost * 0.10);
+  const totalProjectCost  = totalBase + contingency;
+
+  // ── Financing (Excel section rows 92-110) ──────────────────────────────────
   const downPayment       = Math.round(totalProjectCost * FINANCING.downPaymentPct);
   const loanAmount        = totalProjectCost - downPayment;
   const loanFees          = Math.round(loanAmount * FINANCING.loanFeePct);
@@ -218,65 +287,82 @@ export function runFinancialModel(
   const monthlyDebtService = calcMonthlyPayment(
     netLoanProceeds,
     FINANCING.annualInterest,
-    FINANCING.loanTermYears
+    FINANCING.loanTermYears,
   );
 
+  // ── 5-year projections ─────────────────────────────────────────────────────
   const projections: YearlyProjection[] = [];
-  for (let yr = 1; yr <= 5; yr++) {
-    projections.push(buildYearlyProjection(yr, estimatedDailyTraffic, capex, loanAmount, monthlyDebtService));
+
+  if (!format.feasible || estimatedDailyTraffic <= 0) {
+    // Return zeroed projections if budget is too low or no traffic data
+    for (let yr = 1; yr <= 5; yr++) {
+      projections.push({
+        year: `Year ${yr}`, revenue: 0, cogs: 0, grossProfit: 0,
+        sgna: 0, ebitda: 0, netIncome: 0, cars: 0, margin: 0,
+      });
+    }
+  } else {
+    for (let yr = 1; yr <= 5; yr++) {
+      projections.push(buildYearProjection(
+        yr, estimatedDailyTraffic, format,
+        landCost, equipmentCost, constructionCost,
+        loanAmount, monthlyDebtService,
+      ));
+    }
   }
 
   const year1 = projections[0];
   const year3 = projections[2];
   const year5 = projections[4];
 
-  // Payback calculation (cumulative net income)
+  // ── Payback (how many years to recover down payment) ──────────────────────
   let cumulative = -downPayment;
   let paybackYears = 0;
   for (let i = 0; i < projections.length; i++) {
     cumulative += projections[i].netIncome;
-    if (cumulative >= 0 && paybackYears === 0) {
-      paybackYears = i + 1;
-    }
+    if (cumulative >= 0 && paybackYears === 0) paybackYears = i + 1;
   }
-  if (paybackYears === 0) paybackYears = 7; // beyond 5 years
+  if (paybackYears === 0) paybackYears = 7; // beyond 5-year window
 
-  // Approximate IRR (simplified)
-  const irr5Year = year1.revenue > 0
+  // ── IRR approximation ──────────────────────────────────────────────────────
+  const irr5Year = year1.revenue > 0 && downPayment > 0
     ? Math.min(35, Math.round((year5.netIncome / downPayment) * 100 * 0.6))
     : 0;
 
-  // Break-even monthly revenue
+  // ── Break-even monthly revenue ─────────────────────────────────────────────
   const annualFixed = year1.sgna + monthlyDebtService * 12;
-  const contributionMargin = 1 - (year1.cogs / year1.revenue);
-  const breakEvenAnnual = contributionMargin > 0 ? annualFixed / contributionMargin : 0;
-  const breakEvenMonthly = Math.round(breakEvenAnnual / 12);
+  const contributionMargin = year1.revenue > 0
+    ? 1 - (year1.cogs / year1.revenue)
+    : 0.5;
+  const breakEvenMonthly = contributionMargin > 0
+    ? Math.round(annualFixed / contributionMargin / 12)
+    : 0;
 
-  const dailyCars = Math.round(estimatedDailyTraffic * TRAFFIC.captureRate);
+  const dailyCarsWashed = Math.round(estimatedDailyTraffic * format.captureRate);
 
   const assumptions: FinancialAssumptions = {
     dailyTrafficCount: estimatedDailyTraffic,
-    captureRate: TRAFFIC.captureRate,
-    dailyCarsWashed: dailyCars,
-    avgRevenuePerCar: WTD_AVG_PRICE_PER_CAR,
-    totalCapex: totalProjectCost,
-    landCost: capex.land,
-    equipmentCost: capex.equipment,
-    constructionCost: capex.construction,
-    interestRate: FINANCING.annualInterest,
-    loanTermYears: FINANCING.loanTermYears,
+    captureRate:       format.captureRate,
+    dailyCarsWashed,
+    avgRevenuePerCar:  format.avgRevPerCar,
+    totalCapex:        totalProjectCost,
+    landCost,
+    equipmentCost,
+    constructionCost,
+    interestRate:      FINANCING.annualInterest,
+    loanTermYears:     FINANCING.loanTermYears,
   };
 
   return {
     totalProjectCost,
     downPayment,
-    loanAmount: netLoanProceeds,
-    monthlyDebtService: Math.round(monthlyDebtService),
-    year1Revenue: year1.revenue,
-    year1EBITDA:  year1.ebitda,
-    year1NetIncome: year1.netIncome,
-    year3Revenue: year3.revenue,
-    year5Revenue: year5.revenue,
+    loanAmount:              netLoanProceeds,
+    monthlyDebtService:      Math.round(monthlyDebtService),
+    year1Revenue:            year1.revenue,
+    year1EBITDA:             year1.ebitda,
+    year1NetIncome:          year1.netIncome,
+    year3Revenue:            year3.revenue,
+    year5Revenue:            year5.revenue,
     paybackYears,
     irr5Year,
     breakEvenMonthlyRevenue: breakEvenMonthly,
@@ -286,10 +372,8 @@ export function runFinancialModel(
 }
 
 export function formatCurrency(value: number): string {
-  if (Math.abs(value) >= 1_000_000)
-    return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (Math.abs(value) >= 1_000)
-    return `$${(value / 1_000).toFixed(0)}K`;
+  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(value) >= 1_000)     return `$${(value / 1_000).toFixed(0)}K`;
   return `$${value.toLocaleString()}`;
 }
 

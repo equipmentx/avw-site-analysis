@@ -34,6 +34,10 @@ const FinalDecisionPanel = dynamic(
   () => import("@/components/FinalDecision"),
   { ssr: false, loading: () => <div className="shimmer h-80 rounded-3xl" /> }
 );
+const SatelliteView = dynamic(
+  () => import("@/components/SatelliteView"),
+  { ssr: false, loading: () => <div className="shimmer h-[380px] rounded-2xl" /> }
+);
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
 function LoadingState({ address }: { address: string }) {
@@ -379,6 +383,19 @@ function AnalysisPageInner() {
           />
         </Section>
 
+        {/* ── Satellite View ───────────────────────────────────────── */}
+        <Section
+          title="Satellite Site View"
+          subtitle="Overhead imagery — assess lot shape, road access, and anchor tenants"
+          icon={<MapPin className="w-5 h-5 text-emerald-400" />}
+        >
+          <SatelliteView
+            coordinates={result.coordinates}
+            address={result.address}
+            apiKey={apiKey}
+          />
+        </Section>
+
         {/* ── Traffic Signals ─────────────────────────────────────── */}
         <Section
           title="Traffic & Market Signals"
@@ -472,10 +489,16 @@ function AnalysisPageInner() {
         {/* ── Financial Projection ─────────────────────────────────── */}
         <Section
           title="5-Year Financial Projection"
-          subtitle="Revenue, EBITDA, and return on investment based on your location's traffic profile"
+          subtitle="What your budget can build · what the business will earn · what you take home — all calculated from your inputted price"
           icon={<DollarSign className="w-5 h-5 text-emerald-400" />}
         >
-          <FinancialProjectionPanel data={financialProjection} currency={currency} rate={rate} />
+          <FinancialProjectionPanel
+            data={financialProjection}
+            currency={currency}
+            rate={rate}
+            budgetUSD={result.budgetUSD ?? 0}
+            investmentSuggestion={result.investmentSuggestion}
+          />
         </Section>
 
         {/* ── Recommendations ─────────────────────────────────────── */}

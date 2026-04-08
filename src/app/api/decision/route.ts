@@ -198,9 +198,20 @@ export async function POST(req: NextRequest) {
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         const client = new Anthropic({ apiKey: anthropicKey });
 
-        const aiPrompt = `You are a professional car wash investment analyst. Review this rule-based analysis and enrich it with real-world market insight. Return ONLY valid JSON with exactly these fields (no markdown fences):
+        const aiPrompt = `You are a professional car wash investment analyst. Review this rule-based analysis and enrich it with real-world market insight.
+
+You must evaluate this site against the industry-standard "5 Secrets to a Stellar Car Wash Site" framework:
+1. MARKET SIZE — Does the trade area have 25,000–30,000+ people? Are there enough potential customers?
+2. SITE SURROUNDINGS — Are weekly-needs businesses present (grocery stores, big-box retailers like Target/Walmart/HEB)? Is estimated daily traffic ≥20,000 vehicles/day?
+3. PHYSICAL FIT — Does the lot likely support a car wash layout (shape, size, setbacks, grade)?
+4. VISIBILITY & ACCESS — Is the location on a commercial corridor with good sightlines, reasonable speed limits (≤45 mph), and dual-direction access?
+5. ZONING VIABILITY — Is the area a commercial retail zone (not industrial or residential)? Commercial retail = highest foot traffic, strongest repeat customer base.
+
+Use the data below to score each of the 5 criteria as PASS, CAUTION, or FAIL and incorporate your findings into the JSON output.
+
+Return ONLY valid JSON with exactly these fields (no markdown fences):
 {
-  "decisionSummary": "string (2-3 sentences, specific to this location)",
+  "decisionSummary": "string (2-3 sentences, specific to this location and referencing the 5-criteria assessment)",
   "recommendation": "string (concrete actionable next step)",
   "redFlags": ["string", ...],
   "greenFlags": ["string", ...]
@@ -208,12 +219,16 @@ export async function POST(req: NextRequest) {
 
 ANALYSIS DATA:
 Address: ${result.address}
-Country: ${decision.budgetAnalysis.includes(result.countryCode) ? result.countryCode : ""}
+Country: ${result.countryCode}
 Verdict: ${decision.verdict}
 Budget: ${fmtUSD(budgetUSD)} USD | Minimum required: ${fmtUSD(decision.minimumRequiredUSD)}
 Score: ${result.score.overall}/100 (${result.score.verdict})
-Traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day
-Competitors: ${result.competitors.length} within 5 miles, avg rating ${result.reviewInsights.avgCompetitorRating.toFixed(1)}
+Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day
+Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores}
+Nearby shopping centers: ${result.trafficSignals.nearbyShopping}
+Nearby gas stations: ${result.trafficSignals.nearbyGasStations}
+Competitors within 5 miles: ${result.competitors.length} | Avg rating: ${result.reviewInsights.avgCompetitorRating.toFixed(1)}
+Market saturation: ${result.reviewInsights.marketSaturationLevel}
 Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)}
 Payback: ${result.financialProjection.paybackYears} years | IRR: ~${result.financialProjection.irr5Year}%
 Existing red flags: ${decision.redFlags.join("; ")}
@@ -250,13 +265,19 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
               role: "system",
               content:
                 "You are a professional car wash investment analyst with 20 years of experience in real estate and retail business development. " +
-                "You will be given data about a car wash investment opportunity and must return a JSON object with your analysis. " +
+                "You evaluate sites using the industry-standard '5 Secrets to a Stellar Car Wash Site' framework:\n" +
+                "1. MARKET SIZE — Trade area needs 25,000–30,000+ people to support a car wash.\n" +
+                "2. SITE SURROUNDINGS — Weekly-needs businesses (grocery, big-box) must be present; daily traffic ≥20,000 vehicles.\n" +
+                "3. PHYSICAL FIT — Lot must support car wash layout: square/rectangle shape, sufficient acreage, manageable setbacks.\n" +
+                "4. VISIBILITY & ACCESS — 500ft clear sightlines both directions, speed limit ≤45mph, dual-direction road access, no blocking median.\n" +
+                "5. ZONING VIABILITY — Commercial retail zone preferred over industrial or residential; may need conditional use permit.\n\n" +
+                "You will be given data about a car wash investment opportunity. Evaluate it against these 5 criteria and return your expert assessment. " +
                 "Be specific, realistic, and reference the actual location and numbers provided. " +
                 "Return ONLY a valid JSON object — no markdown, no code fences, no extra text.",
             }, {
               role: "user",
               content:
-                `Analyze this car wash investment opportunity and return your expert assessment as JSON.\n\n` +
+                `Analyze this car wash investment opportunity using the 5-Criteria framework and return your expert assessment as JSON.\n\n` +
                 `LOCATION: ${result.address}\n` +
                 `COUNTRY: ${result.countryCode}\n` +
                 `INVESTMENT BUDGET: ${fmtUSD(budgetUSD)} USD\n` +
@@ -273,6 +294,11 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Average competitor rating: ${result.reviewInsights.avgCompetitorRating}/5.0\n` +
                 `- Market saturation: ${result.reviewInsights.marketSaturationLevel}\n` +
                 `- Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day\n\n` +
+                `SITE SURROUNDINGS (for 5-Criteria evaluation):\n` +
+                `- Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} (ideal: ≥2 for weekly-needs anchor)\n` +
+                `- Nearby shopping centers/big-box: ${result.trafficSignals.nearbyShopping} (ideal: ≥1)\n` +
+                `- Nearby gas stations: ${result.trafficSignals.nearbyGasStations} (arterial road indicator)\n` +
+                `- Nearby fast food / restaurants: ${result.trafficSignals.nearbyFastFood}\n\n` +
                 `FINANCIAL PROJECTIONS:\n` +
                 `- Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)}\n` +
                 `- Year 1 EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)}\n` +
@@ -280,12 +306,12 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Payback period: ${result.financialProjection.paybackYears} years\n` +
                 `- 5-Year IRR: ~${result.financialProjection.irr5Year}%\n\n` +
                 `INITIAL VERDICT: ${decision.verdict}\n\n` +
-                `Return this exact JSON structure:\n` +
+                `Evaluate the site against all 5 criteria and include relevant criteria findings in your redFlags and greenFlags. Return this exact JSON structure:\n` +
                 `{\n` +
-                `  "decisionSummary": "2-3 sentences specific to this location and budget",\n` +
+                `  "decisionSummary": "2-3 sentences specific to this location, budget, and 5-criteria assessment",\n` +
                 `  "recommendation": "One concrete actionable next step for the investor",\n` +
-                `  "redFlags": ["specific risk 1", "specific risk 2", ...],\n` +
-                `  "greenFlags": ["specific positive 1", "specific positive 2", ...]\n` +
+                `  "redFlags": ["specific risk referencing criteria or data", ...],\n` +
+                `  "greenFlags": ["specific positive referencing criteria or data", ...]\n` +
                 `}`,
             }],
           }),
