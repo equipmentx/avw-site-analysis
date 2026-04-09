@@ -110,6 +110,30 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
         })}
       </div>
 
+      {/* What this number means vs minimum viable */}
+      <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 space-y-3">
+        <h4 className="text-blue-300 font-bold text-sm flex items-center gap-2">
+          <span>ℹ️</span> What This Range Means
+        </h4>
+        <div className="grid sm:grid-cols-2 gap-3 text-xs">
+          <div className="bg-slate-800/50 rounded-xl p-3 border border-blue-500/15">
+            <div className="text-blue-300 font-bold mb-1">Suggested Investment Range</div>
+            <div className="text-slate-300 leading-relaxed">
+              What a <span className="text-white font-semibold">properly-built</span> car wash actually costs in this market — realistic land, full-spec tunnel equipment, quality construction, permits, and a contingency buffer. This is what you should plan your budget around.
+            </div>
+          </div>
+          <div className="bg-slate-800/50 rounded-xl p-3 border border-yellow-500/15">
+            <div className="text-yellow-300 font-bold mb-1">Minimum Viable Investment</div>
+            <div className="text-slate-300 leading-relaxed">
+              The <span className="text-white font-semibold">absolute floor</span> — the least you can spend and still build a functional tunnel that generates returns. Shown in the Investment Decision section. Going below this means the project cannot be built to a profitable standard.
+            </div>
+          </div>
+        </div>
+        <p className="text-slate-500 text-xs border-t border-slate-700/30 pt-2">
+          The gap between the two is the difference between <span className="text-slate-400">"barely functional"</span> and <span className="text-slate-400">"built to compete and generate returns."</span> Use the Suggested Range for planning; use the Minimum Viable as your hard floor.
+        </p>
+      </div>
+
       {/* Rationale */}
       <div className="bg-slate-800/30 border border-slate-700/20 rounded-2xl p-5 space-y-3">
         <h4 className="text-white font-bold text-sm">How This Was Calculated</h4>

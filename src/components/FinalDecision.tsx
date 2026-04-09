@@ -10,6 +10,12 @@ interface Props {
   rate: number;         // how many currency units = 1 USD
 }
 
+function fmt(usd: number): string {
+  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(2)}M`;
+  if (usd >= 1_000)     return `$${(usd / 1_000).toFixed(0)}K`;
+  return `$${Math.round(usd).toLocaleString()}`;
+}
+
 const VERDICT_STYLES = {
   "INVEST": {
     bg:     "bg-emerald-500/10",
@@ -119,8 +125,47 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
       </div>
 
       {/* ── Budget analysis ─────────────────────────────────────────────────── */}
-      <div className={`rounded-2xl p-4 border ${decision.budgetFeasible ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}>
-        <div className="flex items-start gap-2">
+      <div className={`rounded-2xl p-4 border space-y-4 ${decision.budgetFeasible ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+
+        {/* Visual budget comparison */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
+            <div className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Your Budget</div>
+            <div className={`text-lg font-black ${decision.budgetFeasible ? "text-emerald-300" : "text-red-300"}`}>
+              {fmt(decision.budgetUSD)}
+            </div>
+            <div className="text-slate-500 text-[10px] mt-0.5">What you have to invest</div>
+          </div>
+          <div className="bg-slate-800/60 rounded-xl p-3 border border-yellow-500/20">
+            <div className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Minimum Viable Investment</div>
+            <div className="text-lg font-black text-yellow-300">
+              {fmt(decision.minimumRequiredUSD)}
+            </div>
+            <div className="text-slate-500 text-[10px] mt-0.5">Hard floor to build a viable tunnel</div>
+          </div>
+        </div>
+
+        {/* Progress bar: budget vs minimum */}
+        <div>
+          <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+            <span>Budget coverage of minimum</span>
+            <span className={decision.budgetFeasible ? "text-emerald-400" : "text-red-400"}>
+              {Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100)}%
+            </span>
+          </div>
+          <div className="h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${decision.budgetFeasible ? "bg-emerald-400" : "bg-red-400"}`}
+              style={{ width: `${Math.min(100, Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100))}%` }}
+            />
+          </div>
+          <p className="text-slate-500 text-[10px] mt-1">
+            The Minimum Viable Investment is the absolute floor — below this, no car wash can be built to a profitable standard. Your Suggested Investment Range (in the section above) is what a properly-built site actually costs.
+          </p>
+        </div>
+
+        {/* Full analysis text */}
+        <div className="flex items-start gap-2 border-t border-slate-700/30 pt-3">
           <span className="text-lg flex-shrink-0">{decision.budgetFeasible ? "💰" : "❌"}</span>
           <p className={`text-sm leading-relaxed ${decision.budgetFeasible ? "text-emerald-200" : "text-red-200"}`}>
             {decision.budgetAnalysis}
