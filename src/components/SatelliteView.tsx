@@ -38,7 +38,7 @@ export default function SatelliteView({ coordinates, address, apiKey }: Satellit
     `https://maps.googleapis.com/maps/api/staticmap` +
     `?center=${lat},${lng}` +
     `&zoom=${currentZoom.zoom}` +
-    `&size=900x480` +
+    `&size=700x320` +
     `&scale=2` +
     `&maptype=satellite` +
     `&markers=color:blue%7Clabel:S%7C${lat},${lng}` +
@@ -88,7 +88,7 @@ export default function SatelliteView({ coordinates, address, apiKey }: Satellit
               src={imageUrl}
               alt={`Satellite view of ${address}`}
               className="w-full object-cover"
-              style={{ display: "block", minHeight: "300px" }}
+              style={{ display: "block", minHeight: "180px", maxHeight: "220px" }}
               onError={() => setImgError(true)}
             />
 
@@ -113,7 +113,7 @@ export default function SatelliteView({ coordinates, address, apiKey }: Satellit
             </div>
           </>
         ) : (
-          <div className="h-[300px] flex flex-col items-center justify-center text-center p-6">
+          <div className="h-[200px] flex flex-col items-center justify-center text-center p-6">
             <Satellite className="w-10 h-10 text-slate-600 mb-3" />
             <p className="text-slate-400 text-sm mb-1">Satellite imagery unavailable</p>
             <p className="text-slate-600 text-xs mb-4">
