@@ -261,16 +261,16 @@ function httpsGet(url: string, timeoutMs = 20_000): Promise<any | null> {
   });
 }
 
-async function fetchPopularTimes(placeId: string, placeName: string, lat: number, lng: number): Promise<any[] | null> {
+async function fetchPopularTimes(placeId: string, _placeName: string, _lat: number, _lng: number): Promise<any[] | null> {
   if (!SERPAPI_KEY) return null;
 
-  // SerpApi Google Maps — place details by name + coordinates to get popular_times
+  // SerpApi Google Maps place details — pass the Google place_id directly.
+  // The `type=place` mode requires `place_id`, `data`, or `data_cid` — not `q`+`ll`.
+  // Google Places API gives us place_id (ChIJ...) which SerpApi accepts as-is.
   const url = new URL("https://serpapi.com/search.json");
-  url.searchParams.set("engine",  "google_maps");
-  url.searchParams.set("q",       placeName);
-  url.searchParams.set("ll",      `@${lat},${lng},15z`);
-  url.searchParams.set("type",    "place");
-  url.searchParams.set("api_key", SERPAPI_KEY);
+  url.searchParams.set("engine",   "google_maps");
+  url.searchParams.set("place_id", placeId);
+  url.searchParams.set("api_key",  SERPAPI_KEY);
 
   // Use native https — serpapi.com times out with undici/fetch on Windows
   const data = await httpsGet(url.toString());

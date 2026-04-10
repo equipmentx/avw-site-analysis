@@ -202,9 +202,12 @@ export async function fetchRegridParcel(
   if (!token) return unavailable("Regrid API key not configured (REGRID_API_KEY).");
   if (!isInUS(lat, lng)) return unavailable("Regrid covers US parcels only. This location is outside the United States.");
 
+  // Regrid accepts auth via Bearer header OR ?token= param.
+  // Include both to maximize compatibility across plan tiers.
   const url =
     `${REGRID_BASE}/parcels/point` +
     `?lat=${lat}&lon=${lng}` +
+    `&token=${encodeURIComponent(token)}` +
     `&return_custom=false&return_field_labels=false`;
 
   const json = await regridGet(url, token);
