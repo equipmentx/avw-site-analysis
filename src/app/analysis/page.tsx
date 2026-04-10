@@ -390,13 +390,14 @@ function AnalysisPageInner() {
         {/* ── Map ─────────────────────────────────────────────────── */}
         <Section
           title="Location Map"
-          subtitle={`${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within 5 miles · Click pins for details`}
+          subtitle={`${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within ${result.radiusMiles ?? radiusMiles} mile${(result.radiusMiles ?? radiusMiles) !== 1 ? "s" : ""} · Click pins for details`}
           icon={<MapPin className="w-5 h-5 text-blue-400" />}
         >
           <AnalysisMap
             center={result.coordinates}
             competitors={competitors}
             apiKey={apiKey}
+            radiusMiles={result.radiusMiles ?? radiusMiles}
           />
         </Section>
 
@@ -477,7 +478,7 @@ function AnalysisPageInner() {
               <div className="text-6xl mb-4">🏆</div>
               <h3 className="text-white font-bold text-xl mb-2">No Competitors Found!</h3>
               <p className="text-slate-400 text-sm max-w-sm mx-auto">
-                There are no car washes within 5 miles of this location. This is an exceptionally strong first-mover opportunity.
+                There are no car washes within {result.radiusMiles ?? radiusMiles} mile{(result.radiusMiles ?? radiusMiles) !== 1 ? "s" : ""} of this location. This is an exceptionally strong first-mover opportunity.
               </p>
             </div>
           ) : (

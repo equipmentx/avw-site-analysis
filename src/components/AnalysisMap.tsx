@@ -7,6 +7,7 @@ interface AnalysisMapProps {
   center: { lat: number; lng: number };
   competitors: CompetitorAnalysis[];
   apiKey: string;
+  radiusMiles?: number;
 }
 
 declare global {
@@ -16,7 +17,7 @@ declare global {
   }
 }
 
-export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMapProps) {
+export default function AnalysisMap({ center, competitors, apiKey, radiusMiles = 5 }: AnalysisMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
@@ -158,7 +159,7 @@ export default function AnalysisMap({ center, competitors, apiKey }: AnalysisMap
         fillOpacity: 0.03,
         map,
         center,
-        radius: 8047, // 5 miles in meters
+        radius: radiusMiles * 1609.34, // user-selected trade area radius
       });
 
       setMapLoaded(true);

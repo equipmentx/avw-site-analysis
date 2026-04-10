@@ -180,7 +180,7 @@ function rulesDecision(
   if (score.components.competition >= 75)            redFlags.push(`High competition score (${score.components.competition}/100) — strong established players nearby`);
   if (fp.paybackYears > 8)                           redFlags.push(`Long payback period of ${fp.paybackYears} years exceeds the 7-year industry benchmark`);
   if (trafficSignals.estimatedDailyTraffic < 3_000)  redFlags.push(`Very low estimated traffic (${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day) — capture rate will be insufficient`);
-  if (competitors.length >= 5)                       redFlags.push(`${competitors.length} car washes detected within 5 miles — market may be over-served`);
+  if (competitors.length >= 5)                       redFlags.push(`${competitors.length} car washes detected within ${result.radiusMiles} miles — market may be over-served`);
   if (fp.irr5Year < 10)                              redFlags.push(`5-year IRR of ~${fp.irr5Year}% is below typical 15% investment hurdle rate`);
 
   // Wage red flag — higher local wages compress margins vs US baseline
@@ -291,7 +291,7 @@ function rulesDecision(
     `Traffic score: ${score.components.traffic}/100 | Competition: ${score.components.competition}/100 | Opportunity: ${score.components.opportunity}/100`,
     `Year 1 revenue: ${fmtUSD(fp.year1Revenue)} | EBITDA: ${fmtUSD(fp.year1EBITDA)} | Payback: ${fp.paybackYears} yrs | IRR: ~${fp.irr5Year}%`,
     `Year 5 revenue: ${fmtUSD(fp.year5Revenue)}`,
-    `Competitors within 5 miles: ${competitors.length} | Market saturation: ${reviewInsights.marketSaturationLevel}`,
+    `Competitors within ${result.radiusMiles} miles: ${competitors.length} | Market saturation: ${reviewInsights.marketSaturationLevel}`,
     `Daily vehicle count: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing site (TomTom Traffic Flow API — BPR/HCM)`,
     `Country cost index: ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of US benchmark`,
     `Labour rates (${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel 2017 baseline"}): staff $${staffHourly.toFixed(2)}/hr · manager $${managerHourly.toFixed(2)}/hr`,
@@ -500,7 +500,7 @@ Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleS
 Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} [source: Google Places API]
 Nearby shopping centers: ${result.trafficSignals.nearbyShopping} [source: Google Places API]
 Nearby gas stations: ${result.trafficSignals.nearbyGasStations} [source: Google Places API]
-Competitors within 5 miles: ${result.competitors.length} | Avg rating: ${result.reviewInsights.avgCompetitorRating.toFixed(1)} [source: Google Places API]
+Competitors within ${result.radiusMiles} miles: ${result.competitors.length} | Avg rating: ${result.reviewInsights.avgCompetitorRating.toFixed(1)} [source: Google Places API]
 Market saturation: ${result.reviewInsights.marketSaturationLevel}
 Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)} [source: 404 Financial Model]
 Payback: ${result.financialProjection.paybackYears} years | IRR: ~${result.financialProjection.irr5Year}%
@@ -578,7 +578,7 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Market Activity: ${result.score.components.market}/100\n` +
                 `- Financial Viability: ${result.score.components.financial}/100\n\n` +
                 `MARKET DATA [source: Google Places API — live data]:\n` +
-                `- Competitors within 5 miles: ${result.competitors.length}\n` +
+                `- Competitors within ${result.radiusMiles} miles: ${result.competitors.length}\n` +
                 `- Average competitor rating: ${result.reviewInsights.avgCompetitorRating}/5.0\n` +
                 `- Market saturation: ${result.reviewInsights.marketSaturationLevel}\n` +
                 `- Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [Google Maps review-volume formula]\n\n` +

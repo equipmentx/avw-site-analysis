@@ -46,13 +46,25 @@ export default function RegridParcelPanel({ parcel }: Props) {
   const [showRaw, setShowRaw] = useState(false);
 
   if (parcel.status === "unavailable") {
+    const isNoRecord   = parcel.source.includes("No parcel record");
+    const isNonUS      = parcel.source.includes("outside the United States");
+    const isNoKey      = parcel.source.includes("not configured");
+
     return (
       <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl p-5 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
+        <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isNoRecord ? "text-amber-400" : "text-slate-400"}`} />
         <div>
-          <p className="text-slate-300 text-sm font-semibold">Parcel data unavailable</p>
-          <p className="text-slate-400 text-xs mt-1 leading-relaxed">{parcel.source}</p>
-          {!parcel.source.includes("outside the United States") && (
+          <p className="text-slate-300 text-sm font-semibold">
+            {isNoRecord ? "No parcel record found" : isNonUS ? "Outside Regrid coverage area" : "Parcel data unavailable"}
+          </p>
+          <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+            {isNoRecord
+              ? "This location is not in Regrid's county assessor database. This is common for newly developed parcels, private roads, or areas where the county has not yet published digital records."
+              : isNonUS
+              ? "Regrid covers US parcels only (all 50 states). Parcel data is not available for this international location."
+              : parcel.source}
+          </p>
+          {isNoKey && (
             <p className="text-slate-400 text-xs mt-2 leading-relaxed">
               Add <code className="bg-slate-700 px-1 rounded text-slate-200">REGRID_API_KEY</code> to{" "}
               <code className="bg-slate-700 px-1 rounded text-slate-200">.env.local</code> to enable parcel lookups.
