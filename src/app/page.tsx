@@ -294,7 +294,7 @@ export default function LandingPage() {
     setBudgetError("");
     setLoading(true);
     const params = new URLSearchParams({ address: val, budget, currency: currency.code, radius: radiusMiles.toString() });
-    router.push(`/analysis?${params.toString()}`);
+    router.push(`/configure?${params.toString()}`);
   };
 
   const handleLogoClick = () => window.location.reload();
@@ -396,29 +396,37 @@ export default function LandingPage() {
                 </p>
               )}
 
-              {/* Radius selector */}
-              <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
-                <MapPin className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                <span className="text-slate-400 text-xs whitespace-nowrap">Analysis radius:</span>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[1, 2, 3, 5, 7, 10].map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setRadiusMiles(m)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
-                        radiusMiles === m
-                          ? "bg-blue-500/25 border-blue-500/50 text-blue-300"
-                          : "bg-slate-700/30 border-slate-700/50 text-slate-500 hover:text-slate-300 hover:border-slate-600"
-                      }`}
-                    >
-                      {m} mi
-                    </button>
-                  ))}
+              {/* Radius selector — slider 5→70 mi */}
+              <div className="flex flex-col gap-1.5 px-3 py-2.5 border-t border-slate-700/40">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-slate-400 text-xs">Radar radius</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-blue-300 font-bold text-sm tabular-nums">{radiusMiles} mi</span>
+                    {radiusMiles > 30 && (
+                      <span className="text-[9px] text-amber-400/80 font-medium">(API capped ~31 mi)</span>
+                    )}
+                  </div>
                 </div>
-                <span className="ml-auto text-slate-600 text-[10px] whitespace-nowrap hidden sm:block">
-                  Competitors · traffic signals · incidents
-                </span>
+                <input
+                  type="range"
+                  min={5}
+                  max={70}
+                  step={5}
+                  value={radiusMiles}
+                  onChange={(e) => setRadiusMiles(parseInt(e.target.value))}
+                  className="w-full h-1.5 rounded-full accent-blue-500 cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #3b82f6 ${((radiusMiles - 5) / 65) * 100}%, #1e293b ${((radiusMiles - 5) / 65) * 100}%)`,
+                  }}
+                />
+                <div className="flex justify-between text-[9px] text-slate-600 font-medium">
+                  <span>5 mi</span>
+                  <span>35 mi</span>
+                  <span>70 mi</span>
+                </div>
               </div>
 
               <button
@@ -433,8 +441,8 @@ export default function LandingPage() {
                   </>
                 ) : (
                   <>
-                    <Zap className="w-4 h-4" />
-                    Analyze This Location
+                    <ChevronRight className="w-4 h-4" />
+                    Continue — Choose Format
                     <ChevronRight className="w-4 h-4" />
                   </>
                 )}

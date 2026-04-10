@@ -275,11 +275,12 @@ async function fetchPopularTimes(placeId: string, _placeName: string, _lat: numb
   // Use native https — serpapi.com times out with undici/fetch on Windows
   const data = await httpsGet(url.toString());
 
-  return (
+  const times =
     data?.place_results?.popular_times ??
     data?.local_results?.[0]?.popular_times ??
-    null
-  );
+    null;
+  // SerpApi sometimes returns popular_times as an object keyed by day-index instead of an array
+  return Array.isArray(times) ? times : null;
 }
 
 import type { EstimatedVolume } from "@/lib/types";
@@ -299,7 +300,7 @@ function calcVolumeFromPopularTimes(popularTimes: any[] | null, reviewCount: num
     };
   }
 
-  if (!popularTimes || popularTimes.length === 0) {
+  if (!popularTimes || !Array.isArray(popularTimes) || popularTimes.length === 0) {
     return {
       sixMonthEstimate: null,
       confidence: "unavailable",
@@ -476,12 +477,14 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Radius configuration ─────────────────────────────────────────────────
-    // User-set radius in miles (1–15). All searches scale proportionally.
-    const radiusMiles = Math.max(1, Math.min(15, parseFloat(radiusParam) || 5));
-    const radiusMeters = Math.round(radiusMiles * 1609.34);
+    // User-set radius in miles (5–70). Google Places nearbysearch is capped at 50,000m (~31 mi)
+    // beyond which the API silently clamps. We use the full radius for map display.
+    const radiusMiles = Math.max(5, Math.min(70, parseFloat(radiusParam) || 5));
+    const radiusMeters = Math.min(Math.round(radiusMiles * 1609.34), 50_000); // API hard limit
+    const displayRadiusMiles = radiusMiles; // kept for response — used for map circle
 
-    // Traffic signal searches: half the competitor radius (immediate site surroundings)
-    const signalRadiusMeters = Math.round(radiusMiles * 0.5 * 1609.34);
+    // Traffic signal searches: 40% of competitor radius, capped at 40km
+    const signalRadiusMeters = Math.min(Math.round(radiusMiles * 0.4 * 1609.34), 40_000);
 
     // Resolve coordinates + country
     let coordinates: { lat: number; lng: number };
@@ -606,7 +609,7 @@ export async function POST(req: NextRequest) {
       coordinates,
       analyzedAt: new Date().toISOString(),
       countryCode,
-      radiusMiles,
+      radiusMiles: displayRadiusMiles,
       competitors,
       trafficSignals,
       score,
@@ -619,7 +622,8 @@ export async function POST(req: NextRequest) {
       parcel: parcelData,
       dataSources: {
         competitors:
-          `Google Places API — live data fetched at time of analysis within a ${radiusMiles}-mile radius. ` +
+          `Google Places API — live data fetched at time of analysis within a ${displayRadiusMiles}-mile radius ` +
+          `(Google Places nearbysearch API capped at ~31 miles; selected radius: ${displayRadiusMiles} mi). ` +
           "Includes name, rating, review count, photos, opening hours, and distance.",
         traffic:
           tomtomVehiclesPerDay > 0

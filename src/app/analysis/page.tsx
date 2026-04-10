@@ -11,6 +11,7 @@ import {
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
 import { CURRENCIES } from "@/lib/types";
+import { getConfig } from "@/lib/carwashConfigs";
 import ScoreRing from "@/components/ScoreRing";
 import ScoreBreakdown from "@/components/ScoreBreakdown";
 import CompetitorCard from "@/components/CompetitorCard";
@@ -189,6 +190,7 @@ function AnalysisPageInner() {
   const budget      = searchParams.get("budget")   ?? "";
   const currCode    = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
   const radiusMiles = parseFloat(searchParams.get("radius") ?? "5") || 5;
+  const configId    = searchParams.get("config") ?? null;
 
   const [result, setResult]   = useState<SiteAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -231,7 +233,7 @@ function AnalysisPageInner() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, budget, radiusMiles }),
+        body: JSON.stringify({ address, budget, radiusMiles, configId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -299,6 +301,32 @@ function AnalysisPageInner() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+        {/* ── Selected Format Badge ───────────────────────────────── */}
+        {configId && (() => {
+          const cfg = getConfig(configId);
+          if (!cfg) return null;
+          return (
+            <div className="flex items-center gap-3 bg-blue-500/8 border border-blue-500/20 rounded-2xl px-5 py-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/25 flex items-center justify-center text-sm flex-shrink-0">
+                {cfg.category === "tunnel" ? "🏗️" : cfg.category === "inbay" ? "🤖" : cfg.category === "selfserve" ? "🚿" : "⚡"}
+              </div>
+              <div>
+                <div className="text-xs text-blue-400 font-semibold uppercase tracking-widest">
+                  Selected Format
+                </div>
+                <div className="text-white font-bold text-sm">{cfg.name}</div>
+              </div>
+              <div className="ml-auto hidden sm:flex items-center gap-4 text-xs text-slate-400">
+                <span>{cfg.carsPerHour.min}–{cfg.carsPerHour.max} cars/hr</span>
+                <span>Min {cfg.minLotSqFt.toLocaleString()} sqft</span>
+                <span className={cfg.membershipFriendly ? "text-emerald-400" : "text-slate-500"}>
+                  {cfg.membershipFriendly ? "✓ Membership ready" : "No membership model"}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ── Hero Score Card ─────────────────────────────────────── */}
         <div className="bg-slate-800/40 border border-slate-700/30 rounded-3xl p-8 overflow-hidden relative">
           {/* Background glow */}
