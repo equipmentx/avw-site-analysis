@@ -6,7 +6,7 @@ import {
   MapPin, ArrowLeft, RefreshCw, AlertTriangle,
   TrendingUp, Users, DollarSign, Target, Lightbulb,
   CheckCircle, XCircle, ChevronDown, ChevronUp,
-  Share2, Download, Navigation, Maximize2,
+  Share2, Download, Navigation, Maximize2, FileText,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
@@ -49,6 +49,10 @@ const RadiusTrafficPanel = dynamic(
 const LotFitChecker = dynamic(
   () => import("@/components/LotFitChecker"),
   { ssr: false, loading: () => <div className="shimmer h-96 rounded-2xl" /> }
+);
+const RegridParcelPanel = dynamic(
+  () => import("@/components/RegridParcelPanel"),
+  { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
 );
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
@@ -409,13 +413,27 @@ function AnalysisPageInner() {
           />
         </Section>
 
+        {/* ── Regrid Parcel Data ───────────────────────────────────── */}
+        {result.parcel && (
+          <Section
+            title="Land Parcel Record"
+            subtitle="Owner · assessed value · last sale · zoning · lot dimensions — from county assessor via Regrid"
+            icon={<FileText className="w-5 h-5 text-emerald-400" />}
+          >
+            <RegridParcelPanel parcel={result.parcel} />
+          </Section>
+        )}
+
         {/* ── Lot Fit Checker ──────────────────────────────────────── */}
         <Section
           title="Lot Fit Checker"
           subtitle="Enter your lot dimensions — see which car wash configurations fit"
           icon={<Maximize2 className="w-5 h-5 text-cyan-400" />}
         >
-          <LotFitChecker />
+          <LotFitChecker
+            prefilledWidthFt={result.parcel?.dimensions?.widthFt}
+            prefilledDepthFt={result.parcel?.dimensions?.depthFt}
+          />
         </Section>
 
         {/* ── Traffic Signals ─────────────────────────────────────── */}

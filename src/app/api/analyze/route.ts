@@ -27,84 +27,131 @@ console.log("  GOOGLE_MAPS_API_KEY:", GOOGLE_API_KEY ? `✅ (${GOOGLE_API_KEY.sl
 console.log("  SERPAPI_KEY:        ", SERPAPI_KEY    ? `✅ (${SERPAPI_KEY.slice(0,8)}...)`    : "❌ MISSING");
 console.log("  TOMTOM_API_KEY:     ", process.env.TOMTOM_API_KEY ? `✅ (${(process.env.TOMTOM_API_KEY).slice(0,8)}...)` : "❌ MISSING");
 
-// ── BLS PPI: live construction cost inflation factor ──────────────────────────
+// ── BLS CPI: live inflation factor for construction cost adjustment ────────────
 //
-// Series: WPUIP231101 — PPI Inputs to Construction Industries: New Construction
-// Published monthly by the US Bureau of Labor Statistics (no API key required).
+// Series: CUUR0000SA0 — CPI-U All Items (Bureau of Labor Statistics)
 // Used to adjust the 404 Excel model base (August 2017) to current prices.
-// Source: https://www.bls.gov/ppi/
 //
-// BPP_BASE_PERIOD = August 2017 (when the 404 Excel model was published)
-// BLS period format: M08 = August
-const BLS_SERIES    = "WPUIP231101";
-const BLS_BASE_YEAR = "2017";
-const BLS_BASE_MTH  = "M08"; // August 2017
+// API tiers:
+//   No key  → v1 API → 25 req/day, 3 years of data
+//   With key → v2 API → 500 req/day, 20 years of data
+//   Register free at: https://data.bls.gov/registrationEngine/
+//
+// Server-side cache: 24-hour TTL — CPI only updates monthly, no need to re-fetch per analysis.
+// This keeps daily API usage at 1 regardless of how many analyses are run.
 
-function blsNativeGet(url: string): Promise<any | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => { resolve(null); }, 12_000);
-    const req = https.get(
-      url,
-      { headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } },
-      (res) => {
-        let raw = "";
-        res.on("data", (c) => { raw += c; });
-        res.on("end", () => {
-          clearTimeout(timer);
-          if (res.statusCode && res.statusCode >= 400) { resolve(null); return; }
-          try { resolve(JSON.parse(raw)); } catch { resolve(null); }
-        });
-      }
-    );
-    req.on("error", () => { clearTimeout(timer); resolve(null); });
-    req.end();
-  });
-}
+const BLS_SERIES    = "CUUR0000SA0"; // CPI-U All Items — guaranteed valid, monthly
+const BLS_API_KEY   = process.env.BLS_API_KEY ?? "";
+const BLS_BASE_YEAR = "2017";
+const BLS_BASE_MTH  = "M08"; // August 2017 — date of the 404 Excel financial model
+
+// 24-hour server-side cache — survives across requests in the same Node.js process
+let blsCache: { result: PPIResult; fetchedAt: number } | null = null;
+const BLS_CACHE_TTL = 24 * 60 * 60 * 1_000;
 
 interface PPIResult {
-  inflationFactor: number; // current index / Aug-2017 index
+  inflationFactor: number;
   baseValue:       number;
   currentValue:    number;
   currentPeriod:   string;
   source:          string;
 }
 
-async function fetchBLSConstructionPPI(): Promise<PPIResult | null> {
-  // BLS v1 public API — no registration key needed, returns up to 3 years of data
-  const url = `https://api.bls.gov/publicAPI/v1/timeseries/data/${BLS_SERIES}`;
-  const json = await blsNativeGet(url);
+function blsNativeGet(url: string, body?: string): Promise<any | null> {
+  return new Promise((resolve) => {
+    const isPost = !!body;
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      path:     urlObj.pathname + urlObj.search,
+      method:   isPost ? "POST" : "GET",
+      headers: {
+        "User-Agent":   "AVW-Site-Intel/1.0",
+        "Accept":       "application/json",
+        "Content-Type": "application/json",
+        ...(isPost ? { "Content-Length": Buffer.byteLength(body!) } : {}),
+      },
+    };
 
-  if (json?.status !== "REQUEST_SUCCEEDED") return null;
+    const timer = setTimeout(() => { resolve(null); }, 20_000); // 20s — BLS can be slow
+
+    const req = https.request(options, (res) => {
+      let raw = "";
+      res.on("data", (c) => { raw += c; });
+      res.on("end", () => {
+        clearTimeout(timer);
+        if (res.statusCode && res.statusCode >= 400) { resolve(null); return; }
+        try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+      });
+    });
+
+    req.on("error", () => { clearTimeout(timer); resolve(null); });
+    if (isPost && body) req.write(body);
+    req.end();
+  });
+}
+
+async function fetchBLSConstructionPPI(): Promise<PPIResult | null> {
+  // Return cached result if still fresh (CPI updates monthly — 24h cache is safe)
+  if (blsCache && Date.now() - blsCache.fetchedAt < BLS_CACHE_TTL) {
+    return blsCache.result;
+  }
+
+  let json: any = null;
+
+  if (BLS_API_KEY) {
+    // v2 API: POST, 500 req/day, up to 20 years of data — can reach Aug 2017 directly
+    const body = JSON.stringify({
+      seriesid:        [BLS_SERIES],
+      startyear:       BLS_BASE_YEAR,
+      endyear:         new Date().getFullYear().toString(),
+      registrationkey: BLS_API_KEY,
+    });
+    json = await blsNativeGet("https://api.bls.gov/publicAPI/v2/timeseries/data/", body);
+    console.log(`[AVW] BLS v2 API used (key: ${BLS_API_KEY.slice(0, 6)}...)`);
+  } else {
+    // v1 API: GET, 25 req/day, 3 years of data — Aug 2017 may be out of range
+    // The cache means this only fires once per day, so 25 req/day is sufficient
+    json = await blsNativeGet(`https://api.bls.gov/publicAPI/v1/timeseries/data/${BLS_SERIES}`);
+    console.log("[AVW] BLS v1 API used (no key — 25 req/day limit, cached 24h)");
+  }
+
+  if (json?.status !== "REQUEST_SUCCEEDED") {
+    console.warn("[AVW] BLS API returned:", json?.status, json?.message);
+    return null;
+  }
+
   const dataPoints: Array<{ year: string; period: string; value: string }> =
     json?.Results?.series?.[0]?.data ?? [];
   if (!dataPoints.length) return null;
 
-  // Find base period (August 2017) — may not be in the 3-year window if called in 2026+
-  // In that case, use earliest available as base (clearly disclosed)
+  // Find August 2017 base (available if v2 key used or if within 3-year v1 window)
   const basePoint = dataPoints.find(
     (d) => d.year === BLS_BASE_YEAR && d.period === BLS_BASE_MTH
-  ) ?? dataPoints[dataPoints.length - 1]; // oldest available
+  ) ?? dataPoints[dataPoints.length - 1]; // oldest available if 2017 not in range
 
-  // Most recent point (BLS returns newest first)
-  const latest = dataPoints[0];
+  const latest   = dataPoints[0]; // BLS returns newest first
+  const baseVal  = parseFloat(basePoint.value);
+  const curVal   = parseFloat(latest.value);
 
-  const baseVal    = parseFloat(basePoint.value);
-  const currentVal = parseFloat(latest.value);
+  if (!baseVal || !curVal || baseVal <= 0) return null;
 
-  if (!baseVal || !currentVal || baseVal <= 0) return null;
-
-  return {
-    inflationFactor: currentVal / baseVal,
+  const apiTier = BLS_API_KEY ? "v2 (500 req/day)" : "v1 (25 req/day, cached 24h)";
+  const result: PPIResult = {
+    inflationFactor: curVal / baseVal,
     baseValue:       baseVal,
-    currentValue:    currentVal,
-    currentPeriod:   `${latest.year} ${latest.period.replace("M", "Month ")}`,
+    currentValue:    curVal,
+    currentPeriod:   `${latest.year}/${latest.period.replace("M", "M")}`,
     source:
-      `BLS PPI Series ${BLS_SERIES} (Inputs to Construction Industries: New Construction). ` +
-      `Base: ${basePoint.year}/${basePoint.period} (index ${baseVal.toFixed(1)}). ` +
-      `Current: ${latest.year}/${latest.period} (index ${currentVal.toFixed(1)}). ` +
-      `Inflation factor: ${(currentVal / baseVal).toFixed(3)}×. ` +
-      `Source: US Bureau of Labor Statistics api.bls.gov`,
+      `BLS CPI-U All Items (${BLS_SERIES}), ${apiTier}. ` +
+      `Base: ${basePoint.year}/${basePoint.period} index ${baseVal.toFixed(1)}. ` +
+      `Current: ${latest.year}/${latest.period} index ${curVal.toFixed(1)}. ` +
+      `Factor: ${(curVal / baseVal).toFixed(3)}× (+${((curVal / baseVal - 1) * 100).toFixed(1)}% since ${BLS_BASE_YEAR}). ` +
+      `Source: api.bls.gov`,
   };
+
+  blsCache = { result, fetchedAt: Date.now() };
+  return result;
 }
 
 // ── Google Places helpers ─────────────────────────────────────────────────────
@@ -238,8 +285,10 @@ async function fetchPopularTimes(placeId: string, placeName: string, lat: number
 import type { EstimatedVolume } from "@/lib/types";
 import { getWageRates } from "@/lib/iloWages";
 import { fetchTomTomData } from "@/lib/tomtom";
+import { fetchRegridParcel, type RegridParcelData } from "@/lib/regrid";
 
 const TOMTOM_API_KEY = process.env.TOMTOM_API_KEY ?? "";
+const REGRID_API_KEY = process.env.REGRID_API_KEY ?? "";
 
 function calcVolumeFromPopularTimes(popularTimes: any[] | null, reviewCount: number): EstimatedVolume {
   if (!SERPAPI_KEY) {
@@ -312,7 +361,8 @@ function buildInvestmentSuggestion(
   countryCode: string,
   city: string,
   trafficSignals: TrafficSignals,
-  ppi: PPIResult | null,
+  ppi:    PPIResult | null,
+  parcel: RegridParcelData | null,
 ): InvestmentSuggestion {
   const country    = getCountry(countryCode);
   const multiplier = country.multiplier;
@@ -327,6 +377,21 @@ function buildInvestmentSuggestion(
   // Tier multiplier is modest — land/real-estate absorbs most city-tier variation, not equipment
   const urbanMultiplier = isMajorMetro ? 1.20 : isUrban ? 1.00 : 0.85;
   const cityTier = isMajorMetro ? "Major Metro" : isUrban ? "Urban" : "Suburban / Rural";
+
+  // ── Land cost: use Regrid actual market value if available ────────────────
+  // Regrid gives us the county assessor's market value for this specific parcel.
+  // We prefer: lastSalePrice > parcelMarketValueUSD > assessedTotalUSD > 404 model estimate.
+  // A 20% premium over assessor value is typical for acquisition (negotiation buffer).
+  const regridLandValue =
+    parcel?.status === "live"
+      ? (parcel.lastSalePrice
+          ? Math.round(parcel.lastSalePrice * 1.15)     // last sale + 15% market appreciation
+          : parcel.parcelMarketValueUSD
+          ? Math.round(parcel.parcelMarketValueUSD * 1.10)
+          : parcel.assessedLandUSD
+          ? Math.round(parcel.assessedLandUSD * 1.20)   // assessed typically 80% of market
+          : null)
+      : null;
 
   // ── US baseline anchored directly to the 404.xlsx financial model ────────
   // Excel totals: Land $875K · City/Tap fees $250K · Building $150K ·
@@ -344,8 +409,13 @@ function buildInvestmentSuggestion(
   const landAdj  = multiplier * urbanMultiplier;
   const otherAdj = multiplier;
 
+  // If Regrid gives us actual land value, use it for both min and max of land line item
+  const landBreakdown = regridLandValue
+    ? { min: Math.round(regridLandValue * 0.90), max: Math.round(regridLandValue * 1.10) }
+    : { min: Math.round(base.land.min * landAdj), max: Math.round(base.land.max * landAdj) };
+
   const breakdown = {
-    land:         { min: Math.round(base.land.min * landAdj),                          max: Math.round(base.land.max * landAdj) },
+    land:         landBreakdown,
     construction: { min: Math.round(base.construction.min * otherAdj * ppiMultiplier), max: Math.round(base.construction.max * otherAdj * ppiMultiplier) },
     equipment:    { min: Math.round(base.equipment.min * otherAdj * ppiMultiplier),    max: Math.round(base.equipment.max * otherAdj * ppiMultiplier) },
     fees:         { min: Math.round(base.fees.min * otherAdj),                         max: Math.round(base.fees.max * otherAdj) },
@@ -373,11 +443,14 @@ function buildInvestmentSuggestion(
     sourceNote:
       "Cost breakdown anchored to a verified US car wash development model (404 Financial Model, August 2017). " +
       "Line items: Land/Site $875K · Equipment $1.2M · Construction $1.08M · City Fees & Contingency $358K. " +
+      (regridLandValue
+        ? `Land cost from live Regrid parcel data (county assessor record) — actual market-based figure for this specific parcel. `
+        : "Land cost estimated from 404 model + regional index (Regrid parcel data unavailable or non-US location). ") +
       (ppi
-        ? `Construction & equipment costs inflation-adjusted using live BLS PPI (Series WPUIP231101, ${ppi.currentPeriod}): ` +
+        ? `Construction & equipment inflation-adjusted via live BLS CPI-U (CUUR0000SA0, ${ppi.currentPeriod}): ` +
           `${(ppi.inflationFactor * 100 - 100).toFixed(1)}% above August 2017 base. `
-        : "BLS PPI construction inflation adjustment unavailable — costs shown at 2017 base. ") +
-      "Regional multiplier applied for country. Verify with a local contractor.",
+        : "BLS CPI inflation adjustment unavailable — costs shown at 2017 base. ") +
+      "Verify all figures with a local contractor and real estate broker.",
   };
 }
 
@@ -432,10 +505,11 @@ export async function POST(req: NextRequest) {
     const { lat: centerLat, lng: centerLng } = coordinates;
 
     // ── Fetch TomTom, wages, and BLS PPI in parallel ────────────────────────
-    const [wageRates, tomtomData, constructionPPI] = await Promise.all([
+    const [wageRates, tomtomData, constructionPPI, parcelData] = await Promise.all([
       getWageRates(countryCode),
       fetchTomTomData(centerLat, centerLng, TOMTOM_API_KEY, radiusMiles),
       fetchBLSConstructionPPI(),
+      fetchRegridParcel(centerLat, centerLng, REGRID_API_KEY),
     ]);
 
     // ── Competitors — scaled to user radius ──────────────────────────────────
@@ -521,7 +595,10 @@ export async function POST(req: NextRequest) {
     // Insights, recommendations, and investment suggestion
     const reviewInsights       = buildReviewInsights(competitors);
     const recommendations      = buildRecommendations(score, reviewInsights);
-    const investmentSuggestion = buildInvestmentSuggestion(countryCode, city, trafficSignals, constructionPPI);
+    const investmentSuggestion = buildInvestmentSuggestion(
+      countryCode, city, trafficSignals, constructionPPI,
+      parcelData?.status === "live" ? parcelData : null,
+    );
 
     const result: SiteAnalysisResult = {
       address: resolvedAddress,
@@ -539,6 +616,7 @@ export async function POST(req: NextRequest) {
       investmentSuggestion,
       budgetUSD: investmentBudget,
       tomtom: tomtomData,
+      parcel: parcelData,
       dataSources: {
         competitors:
           `Google Places API — live data fetched at time of analysis within a ${radiusMiles}-mile radius. ` +

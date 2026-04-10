@@ -230,6 +230,37 @@ export interface AiDecision {
   poweredBy: "rules" | "claude" | "openai";
 }
 
+export interface RegridParcelData {
+  parcelNumber:    string;
+  path:            string;
+  address:         string;
+  city:            string;
+  state:           string;
+  zip:             string;
+  owner:           string;
+  ownerMailingAddress: string;
+  lotSqFt:         number | null;
+  lotAcres:        number | null;
+  dimensions: {
+    widthFt:            number;
+    depthFt:            number;
+    frontageEstimateFt: number;
+  } | null;
+  assessedTotalUSD:       number | null;
+  assessedLandUSD:        number | null;
+  assessedImprovementUSD: number | null;
+  parcelMarketValueUSD:   number | null;
+  lastSalePrice:   number | null;
+  lastSaleDate:    string | null;
+  zoning:          string;
+  zoningDescription: string;
+  landUse:         string;
+  polygon:         Array<{ lat: number; lng: number }>;
+  status:          "live" | "unavailable";
+  source:          string;
+  fetchedAt:       string;
+}
+
 export interface SiteAnalysisResult {
   address: string;
   placeId: string;
@@ -246,6 +277,7 @@ export interface SiteAnalysisResult {
   investmentSuggestion: InvestmentSuggestion;
   budgetUSD?: number;
   tomtom?: TomTomSiteData;
+  parcel?: RegridParcelData;
   // Data source registry — every major data point has a disclosed source
   dataSources: {
     competitors:        string;  // e.g. "Google Places API"

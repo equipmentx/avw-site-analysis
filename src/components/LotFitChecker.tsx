@@ -195,9 +195,14 @@ function getFit(config: Config, width: number, depth: number): FitStatus {
   return "nofits";
 }
 
-export default function LotFitChecker() {
-  const [widthFt, setWidthFt] = useState("");
-  const [depthFt, setDepthFt] = useState("");
+interface Props {
+  prefilledWidthFt?: number;
+  prefilledDepthFt?: number;
+}
+
+export default function LotFitChecker({ prefilledWidthFt, prefilledDepthFt }: Props) {
+  const [widthFt, setWidthFt] = useState(prefilledWidthFt ? String(prefilledWidthFt) : "");
+  const [depthFt, setDepthFt] = useState(prefilledDepthFt ? String(prefilledDepthFt) : "");
   const [unit, setUnit]       = useState<"ft" | "m">("ft");
 
   const toFeet = (val: string) => {
@@ -233,7 +238,12 @@ export default function LotFitChecker() {
       <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex items-start gap-3">
         <Maximize2 className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
         <p className="text-slate-300 text-xs leading-relaxed">
-          Enter your lot dimensions to see which car wash configurations will fit.
+          {prefilledWidthFt && prefilledDepthFt
+            ? <>
+                <span className="text-emerald-300 font-semibold">Auto-filled from Regrid parcel data</span> — dimensions
+                computed from the GIS parcel boundary. You can edit them manually below.{" "}
+              </>
+            : null}
           Minimum sizes are based on <span className="text-white font-semibold">Tommy Car Wash Systems</span> layout specs
           and ICA site-planning guidelines. <span className="text-white font-semibold">"Tight"</span> means within 10% — possible with a civil engineer's input.
         </p>
