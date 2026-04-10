@@ -27,6 +27,86 @@ console.log("  GOOGLE_MAPS_API_KEY:", GOOGLE_API_KEY ? `✅ (${GOOGLE_API_KEY.sl
 console.log("  SERPAPI_KEY:        ", SERPAPI_KEY    ? `✅ (${SERPAPI_KEY.slice(0,8)}...)`    : "❌ MISSING");
 console.log("  TOMTOM_API_KEY:     ", process.env.TOMTOM_API_KEY ? `✅ (${(process.env.TOMTOM_API_KEY).slice(0,8)}...)` : "❌ MISSING");
 
+// ── BLS PPI: live construction cost inflation factor ──────────────────────────
+//
+// Series: WPUIP231101 — PPI Inputs to Construction Industries: New Construction
+// Published monthly by the US Bureau of Labor Statistics (no API key required).
+// Used to adjust the 404 Excel model base (August 2017) to current prices.
+// Source: https://www.bls.gov/ppi/
+//
+// BPP_BASE_PERIOD = August 2017 (when the 404 Excel model was published)
+// BLS period format: M08 = August
+const BLS_SERIES    = "WPUIP231101";
+const BLS_BASE_YEAR = "2017";
+const BLS_BASE_MTH  = "M08"; // August 2017
+
+function blsNativeGet(url: string): Promise<any | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { resolve(null); }, 12_000);
+    const req = https.get(
+      url,
+      { headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => { raw += c; });
+        res.on("end", () => {
+          clearTimeout(timer);
+          if (res.statusCode && res.statusCode >= 400) { resolve(null); return; }
+          try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+        });
+      }
+    );
+    req.on("error", () => { clearTimeout(timer); resolve(null); });
+    req.end();
+  });
+}
+
+interface PPIResult {
+  inflationFactor: number; // current index / Aug-2017 index
+  baseValue:       number;
+  currentValue:    number;
+  currentPeriod:   string;
+  source:          string;
+}
+
+async function fetchBLSConstructionPPI(): Promise<PPIResult | null> {
+  // BLS v1 public API — no registration key needed, returns up to 3 years of data
+  const url = `https://api.bls.gov/publicAPI/v1/timeseries/data/${BLS_SERIES}`;
+  const json = await blsNativeGet(url);
+
+  if (json?.status !== "REQUEST_SUCCEEDED") return null;
+  const dataPoints: Array<{ year: string; period: string; value: string }> =
+    json?.Results?.series?.[0]?.data ?? [];
+  if (!dataPoints.length) return null;
+
+  // Find base period (August 2017) — may not be in the 3-year window if called in 2026+
+  // In that case, use earliest available as base (clearly disclosed)
+  const basePoint = dataPoints.find(
+    (d) => d.year === BLS_BASE_YEAR && d.period === BLS_BASE_MTH
+  ) ?? dataPoints[dataPoints.length - 1]; // oldest available
+
+  // Most recent point (BLS returns newest first)
+  const latest = dataPoints[0];
+
+  const baseVal    = parseFloat(basePoint.value);
+  const currentVal = parseFloat(latest.value);
+
+  if (!baseVal || !currentVal || baseVal <= 0) return null;
+
+  return {
+    inflationFactor: currentVal / baseVal,
+    baseValue:       baseVal,
+    currentValue:    currentVal,
+    currentPeriod:   `${latest.year} ${latest.period.replace("M", "Month ")}`,
+    source:
+      `BLS PPI Series ${BLS_SERIES} (Inputs to Construction Industries: New Construction). ` +
+      `Base: ${basePoint.year}/${basePoint.period} (index ${baseVal.toFixed(1)}). ` +
+      `Current: ${latest.year}/${latest.period} (index ${currentVal.toFixed(1)}). ` +
+      `Inflation factor: ${(currentVal / baseVal).toFixed(3)}×. ` +
+      `Source: US Bureau of Labor Statistics api.bls.gov`,
+  };
+}
+
 // ── Google Places helpers ─────────────────────────────────────────────────────
 // Each request gets a 12-second timeout so a slow connection doesn't hang the whole analysis.
 // On network failure the helpers return empty arrays / null — analysis degrades gracefully.
@@ -163,26 +243,10 @@ const TOMTOM_API_KEY = process.env.TOMTOM_API_KEY ?? "";
 
 function calcVolumeFromPopularTimes(popularTimes: any[] | null, reviewCount: number): EstimatedVolume {
   if (!SERPAPI_KEY) {
-    // Derive from Google review count — industry avg: ~1% of car wash visits result in a Google review
-    // 6-month estimate = (reviewCount / 1%) / 6 months, rounded to nearest 500
-    if (reviewCount > 0) {
-      const totalEstVisits  = reviewCount * 100;                          // reviewCount ÷ 1% review rate
-      const sixMonthRaw     = totalEstVisits / 6;                         // one sixth of lifetime visits
-      const sixMonthEstimate = Math.max(500, Math.round(sixMonthRaw / 500) * 500);
-      return {
-        sixMonthEstimate,
-        confidence: "low",
-        method:
-          `Review-count derived estimate — SERPAPI_KEY not configured so Google Popular Times are unavailable. ` +
-          `Formula: ${reviewCount} reviews ÷ 1% industry review rate = ~${totalEstVisits.toLocaleString()} estimated total visits ` +
-          `÷ 6 (months) = ~${sixMonthEstimate.toLocaleString()} cars. ` +
-          `Confidence is LOW — add SERPAPI_KEY to .env.local for accurate Popular Times data.`,
-      };
-    }
     return {
       sixMonthEstimate: null,
       confidence: "unavailable",
-      method: "No review data available and SERPAPI_KEY not configured. Cannot estimate competitor volume.",
+      method: "SERPAPI_KEY not configured — Popular Times data unavailable. Add SERPAPI_KEY to .env.local.",
     };
   }
 
@@ -190,7 +254,7 @@ function calcVolumeFromPopularTimes(popularTimes: any[] | null, reviewCount: num
     return {
       sixMonthEstimate: null,
       confidence: "unavailable",
-      method: "Google Maps has insufficient visit data for this business. This is common for newer or lower-traffic locations.",
+      method: "Google Maps has no Popular Times data for this business. This is common for newer or low-traffic locations.",
     };
   }
 
@@ -247,10 +311,14 @@ function calcVolumeFromPopularTimes(popularTimes: any[] | null, reviewCount: num
 function buildInvestmentSuggestion(
   countryCode: string,
   city: string,
-  trafficSignals: TrafficSignals
+  trafficSignals: TrafficSignals,
+  ppi: PPIResult | null,
 ): InvestmentSuggestion {
   const country    = getCountry(countryCode);
   const multiplier = country.multiplier;
+  // Apply live BLS construction cost inflation if available
+  // Only applies to construction + equipment (labour/materials); land is market-priced separately
+  const ppiMultiplier = ppi ? ppi.inflationFactor : 1.0;
 
   // Urban density score
   const density = trafficSignals.nearbyGasStations + trafficSignals.nearbyGroceryStores + trafficSignals.nearbyShopping;
@@ -277,10 +345,10 @@ function buildInvestmentSuggestion(
   const otherAdj = multiplier;
 
   const breakdown = {
-    land:         { min: Math.round(base.land.min * landAdj),          max: Math.round(base.land.max * landAdj) },
-    construction: { min: Math.round(base.construction.min * otherAdj), max: Math.round(base.construction.max * otherAdj) },
-    equipment:    { min: Math.round(base.equipment.min * otherAdj),    max: Math.round(base.equipment.max * otherAdj) },
-    fees:         { min: Math.round(base.fees.min * otherAdj),         max: Math.round(base.fees.max * otherAdj) },
+    land:         { min: Math.round(base.land.min * landAdj),                          max: Math.round(base.land.max * landAdj) },
+    construction: { min: Math.round(base.construction.min * otherAdj * ppiMultiplier), max: Math.round(base.construction.max * otherAdj * ppiMultiplier) },
+    equipment:    { min: Math.round(base.equipment.min * otherAdj * ppiMultiplier),    max: Math.round(base.equipment.max * otherAdj * ppiMultiplier) },
+    fees:         { min: Math.round(base.fees.min * otherAdj),                         max: Math.round(base.fees.max * otherAdj) },
   };
 
   const minEstimateUSD = breakdown.land.min + breakdown.construction.min + breakdown.equipment.min + breakdown.fees.min;
@@ -305,7 +373,11 @@ function buildInvestmentSuggestion(
     sourceNote:
       "Cost breakdown anchored to a verified US car wash development model (404 Financial Model, August 2017). " +
       "Line items: Land/Site $875K · Equipment $1.2M · Construction $1.08M · City Fees & Contingency $358K. " +
-      "Regional adjustments use published cost-of-construction indices. Verify with a local contractor.",
+      (ppi
+        ? `Construction & equipment costs inflation-adjusted using live BLS PPI (Series WPUIP231101, ${ppi.currentPeriod}): ` +
+          `${(ppi.inflationFactor * 100 - 100).toFixed(1)}% above August 2017 base. `
+        : "BLS PPI construction inflation adjustment unavailable — costs shown at 2017 base. ") +
+      "Regional multiplier applied for country. Verify with a local contractor.",
   };
 }
 
@@ -359,10 +431,11 @@ export async function POST(req: NextRequest) {
 
     const { lat: centerLat, lng: centerLng } = coordinates;
 
-    // ── Fetch TomTom and wages in parallel before Places (TomTom is the traffic source) ──
-    const [wageRates, tomtomData] = await Promise.all([
+    // ── Fetch TomTom, wages, and BLS PPI in parallel ────────────────────────
+    const [wageRates, tomtomData, constructionPPI] = await Promise.all([
       getWageRates(countryCode),
       fetchTomTomData(centerLat, centerLng, TOMTOM_API_KEY, radiusMiles),
+      fetchBLSConstructionPPI(),
     ]);
 
     // ── Competitors — scaled to user radius ──────────────────────────────────
@@ -371,7 +444,13 @@ export async function POST(req: NextRequest) {
       carWashResults.slice(0, 10).map((p) => fetchPlaceDetails(p.place_id))
     );
 
-    const validDetails = competitorDetails.filter((d): d is PlaceResult => d !== null);
+    const validDetails = competitorDetails
+      .filter((d): d is PlaceResult => d !== null)
+      // Strictly require car_wash in the place types — removes gas stations / auto-detailers
+      // that Google sometimes returns when they happen to offer a wash service
+      .filter((d) => (d.types ?? []).includes("car_wash"))
+      // Remove permanently closed locations
+      .filter((d) => d.business_status !== "CLOSED_PERMANENTLY");
     const popularTimesResults = await Promise.all(
       validDetails.map((place) =>
         fetchPopularTimes(
@@ -442,7 +521,7 @@ export async function POST(req: NextRequest) {
     // Insights, recommendations, and investment suggestion
     const reviewInsights       = buildReviewInsights(competitors);
     const recommendations      = buildRecommendations(score, reviewInsights);
-    const investmentSuggestion = buildInvestmentSuggestion(countryCode, city, trafficSignals);
+    const investmentSuggestion = buildInvestmentSuggestion(countryCode, city, trafficSignals, constructionPPI);
 
     const result: SiteAnalysisResult = {
       address: resolvedAddress,

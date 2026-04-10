@@ -32,10 +32,11 @@ export default function SatelliteView({ coordinates, address, apiKey }: Satellit
   const { lat, lng } = coordinates;
   const currentZoom = ZOOM_LEVELS[zoomIndex];
 
-  // Google Maps Embed API — fully interactive satellite map (drag, pan, zoom)
+  // Google Maps Embed API — place mode shows a red location marker at the address
   const embedUrl =
-    `https://www.google.com/maps/embed/v1/view` +
+    `https://www.google.com/maps/embed/v1/place` +
     `?key=${apiKey}` +
+    `&q=${encodeURIComponent(address)}` +
     `&center=${lat},${lng}` +
     `&zoom=${currentZoom.zoom}` +
     `&maptype=satellite`;

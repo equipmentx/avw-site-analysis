@@ -6,7 +6,7 @@ import {
   MapPin, ArrowLeft, RefreshCw, AlertTriangle,
   TrendingUp, Users, DollarSign, Target, Lightbulb,
   CheckCircle, XCircle, ChevronDown, ChevronUp,
-  Share2, Download, Navigation,
+  Share2, Download, Navigation, Maximize2,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
@@ -41,6 +41,14 @@ const SatelliteView = dynamic(
 const TomTomPanel = dynamic(
   () => import("@/components/TomTomPanel"),
   { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
+);
+const RadiusTrafficPanel = dynamic(
+  () => import("@/components/RadiusTrafficPanel"),
+  { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
+);
+const LotFitChecker = dynamic(
+  () => import("@/components/LotFitChecker"),
+  { ssr: false, loading: () => <div className="shimmer h-96 rounded-2xl" /> }
 );
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
@@ -401,6 +409,15 @@ function AnalysisPageInner() {
           />
         </Section>
 
+        {/* ── Lot Fit Checker ──────────────────────────────────────── */}
+        <Section
+          title="Lot Fit Checker"
+          subtitle="Enter your lot dimensions — see which car wash configurations fit"
+          icon={<Maximize2 className="w-5 h-5 text-cyan-400" />}
+        >
+          <LotFitChecker />
+        </Section>
+
         {/* ── Traffic Signals ─────────────────────────────────────── */}
         <Section
           title="Traffic & Market Signals"
@@ -420,6 +437,15 @@ function AnalysisPageInner() {
             <TomTomPanel data={result.tomtom} />
           </Section>
         )}
+
+        {/* ── Radius Traffic Coverage ──────────────────────────────── */}
+        <Section
+          title="Trade Area Traffic Volume"
+          subtitle="Adjust the radius to see how many vehicles pass through your trade area per day"
+          icon={<Navigation className="w-5 h-5 text-cyan-400" />}
+        >
+          <RadiusTrafficPanel coordinates={result.coordinates} />
+        </Section>
 
         {/* ── Competitors ─────────────────────────────────────────── */}
         <Section
@@ -452,6 +478,15 @@ function AnalysisPageInner() {
             subtitle="What customers across all competitors are saying — your strategic playbook"
             icon={<Lightbulb className="w-5 h-5 text-orange-400" />}
           >
+            <div className="mb-3 flex items-start gap-2 bg-blue-500/5 border border-blue-500/15 rounded-xl px-3 py-2">
+              <span className="text-blue-400 text-xs mt-0.5">📡</span>
+              <p className="text-slate-300 text-xs leading-relaxed">
+                <span className="text-blue-300 font-semibold">Live data</span> — pulled from Google Places reviews at time of analysis.
+                Reviews across all {competitors.length} competitor{competitors.length !== 1 ? "s" : ""} within {result.radiusMiles ?? radiusMiles} miles are fetched live and
+                classified by complaint type. Refreshed every time you run a new analysis.
+              </p>
+            </div>
+
             <div className="mb-4 flex items-center gap-3">
               <div className="bg-slate-700/40 rounded-xl px-4 py-2 text-center">
                 <div className="text-white font-black text-2xl">{reviewInsights.avgCompetitorRating.toFixed(1)}★</div>

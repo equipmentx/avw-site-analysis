@@ -162,8 +162,14 @@ function deriveVehicleCount(
     : 0;
   const vcRatio = Math.min(rawVcRatio, 1.05); // slight over-capacity is possible at LOS F
 
-  // Current hourly flow (both directions combined)
-  const vehiclesPerHour = Math.round(vcRatio * stats.capacityPerHour);
+  // Floor: at free-flow, BPR gives vcRatio≈0 — but the road still carries its minimum
+  // AADT traffic. Apply FHWA AADT_min floor so free-flow roads show real minimum counts.
+  const vehiclesPerHourRaw   = Math.round(vcRatio * stats.capacityPerHour);
+  const vehiclesPerHourFloor = Math.round(stats.AADT_min * stats.K_factor);
+  const vehiclesPerHour      = Math.max(vehiclesPerHourRaw, vehiclesPerHourFloor);
+
+  // The effective V/C ratio after applying the floor
+  const effectiveVcRatio = vehiclesPerHour / stats.capacityPerHour;
 
   // AADT: hourly peak → daily using K-factor, then bounded to FHWA road class range
   const rawAADT = vehiclesPerHour / stats.K_factor;
@@ -173,22 +179,24 @@ function deriveVehicleCount(
 
   const speedRatioPct = Math.round((currentSpeedKmh / freeFlowSpeedKmh) * 100);
 
+  const floorApplied = vehiclesPerHour === vehiclesPerHourFloor && vehiclesPerHourRaw < vehiclesPerHourFloor;
+
   return {
     vehiclesPerHour,
     vehiclesPerDay,
-    vcRatio:             Math.round(vcRatio * 100) / 100,
+    vcRatio:             Math.round(effectiveVcRatio * 100) / 100,
     roadCapacityPerHour: stats.capacityPerHour,
     methodology:
       `TomTom Traffic Flow Segment Data API v4 (live). ` +
       `Road class ${frc} (${stats.description}). ` +
       `Current speed ${Math.round(currentSpeedKmh)} km/h vs free-flow ${Math.round(freeFlowSpeedKmh)} km/h ` +
       `(${speedRatioPct}% of free-flow). ` +
-      `BPR volume-delay function: delay ratio ${delayRatio.toFixed(2)} → v/c ratio ${vcRatio.toFixed(2)} ` +
-      `× road capacity ${stats.capacityPerHour.toLocaleString()} veh/hr (HCM 6th Ed.) ` +
-      `= ${vehiclesPerHour.toLocaleString()} veh/hr current flow. ` +
-      `AADT estimate: ${vehiclesPerHour.toLocaleString()} ÷ K-factor ${stats.K_factor} ` +
-      `= ${Math.round(vehiclesPerHour / stats.K_factor).toLocaleString()}, ` +
-      `bounded to FHWA ${frc} range (${stats.AADT_min.toLocaleString()}–${stats.AADT_max.toLocaleString()}) ` +
+      (floorApplied
+        ? `Traffic at/near free-flow — BPR function gives near-zero V/C; FHWA AADT_min floor applied ` +
+          `(${stats.AADT_min.toLocaleString()} veh/day minimum for ${frc} class). `
+        : `BPR volume-delay: delay ratio ${delayRatio.toFixed(2)} → v/c ${effectiveVcRatio.toFixed(2)} ` +
+          `× capacity ${stats.capacityPerHour.toLocaleString()} veh/hr = ${vehiclesPerHour.toLocaleString()} veh/hr. `) +
+      `AADT estimate: bounded to FHWA ${frc} range (${stats.AADT_min.toLocaleString()}–${stats.AADT_max.toLocaleString()}) ` +
       `= ${vehiclesPerDay.toLocaleString()} veh/day. ` +
       `Sources: TomTom API + FHWA HPMS + HCM 6th Edition (BPR α=0.15, β=4).`,
   };
