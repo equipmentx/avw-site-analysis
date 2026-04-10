@@ -47,6 +47,28 @@ function rulesDecision(
   const staffDelta    = staffHourly - US_BASELINE_STAFF_HOURLY;   // positive = more expensive
   const staffDeltaPct = (staffDelta / US_BASELINE_STAFF_HOURLY) * 100;
 
+  // ── Regrid parcel intelligence ─────────────────────────────────────────────
+  const parcel          = result.parcel;
+  const parcelLive      = parcel?.status === "live";
+  const lotSqFt         = parcel?.lotSqFt ?? null;
+  const lotAcres        = parcel?.lotAcres ?? null;
+  const widthFt         = parcel?.dimensions?.widthFt ?? null;
+  const depthFt         = parcel?.dimensions?.depthFt ?? null;
+  const parcelZoning    = parcel?.zoning ?? null;
+  const parcelLandUse   = parcel?.landUse ?? null;
+  const parcelLastSale  = parcel?.lastSalePrice ?? null;
+  const parcelLandVal   = parcel?.assessedLandUSD ?? null;
+  const parcelOwner     = parcel?.owner ?? null;
+  const parcelLastDate  = parcel?.lastSaleDate ?? null;
+
+  // Tommy Express tunnel minimum: 30,625 sqft (245×125 ft)
+  const EXPRESS_MIN_SQFT = 30_625;
+  const INBAY_MIN_SQFT   =  4_800;
+  const SELFSERVE_MIN_SQFT = 7_000;
+
+  // ── Investment suggestion ───────────────────────────────────────────────────
+  const inv = result.investmentSuggestion;
+
   // ── Competitor volume analysis (SerpApi Popular Times) ─────────────────────
   const competitorsWithVolume = competitors.filter(
     (c) => c.estimatedVolume?.sixMonthEstimate !== null && c.estimatedVolume?.sixMonthEstimate !== undefined
@@ -210,6 +232,44 @@ function rulesDecision(
     );
   }
 
+  // Regrid parcel green flags
+  if (parcelLive && lotSqFt !== null && lotSqFt >= EXPRESS_MIN_SQFT) {
+    greenFlags.push(
+      `Parcel is ${lotSqFt.toLocaleString()} sqft (${lotAcres?.toFixed(2) ?? "?"} acres) — ` +
+      `large enough for a 130ft Express Tunnel layout (min 30,625 sqft). Source: Regrid parcel records.`
+    );
+  }
+  if (parcelLive && parcelZoning && /commercial|retail|C[0-9]|B[0-9]|GC|HC|SC/i.test(parcelZoning)) {
+    greenFlags.push(
+      `Zoning: ${parcelZoning}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""} — ` +
+      `commercial zoning supports car wash use without special variance. Source: Regrid.`
+    );
+  }
+  if (parcelLive && parcelLastSale !== null) {
+    greenFlags.push(
+      `Last recorded land sale: ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` (${parcelLastDate})` : ""} — ` +
+      `provides a negotiation anchor for site acquisition. Source: Regrid county records.`
+    );
+  }
+
+  // Regrid parcel red flags
+  if (parcelLive && lotSqFt !== null && lotSqFt < INBAY_MIN_SQFT) {
+    redFlags.push(
+      `Parcel is only ${lotSqFt.toLocaleString()} sqft — too small even for an in-bay automatic ` +
+      `(min 4,800 sqft). This lot cannot support a car wash of any format. Source: Regrid.`
+    );
+  } else if (parcelLive && lotSqFt !== null && lotSqFt < EXPRESS_MIN_SQFT && lotSqFt >= SELFSERVE_MIN_SQFT) {
+    redFlags.push(
+      `Parcel is ${lotSqFt.toLocaleString()} sqft — insufficient for an Express Tunnel (need 30,625 sqft). ` +
+      `Limited to self-serve or in-bay format. Source: Regrid.`
+    );
+  }
+  if (parcelLive && parcelZoning && /residential|R[0-9]|industrial|I[0-9]/i.test(parcelZoning) && !/commercial|C[0-9]/i.test(parcelZoning)) {
+    redFlags.push(
+      `Zoning: ${parcelZoning} — non-commercial zoning may require a conditional use permit or variance for a car wash. Source: Regrid.`
+    );
+  }
+
   // Competitor volume red flags
   if (competitorsWithVolume.length > 0 && avgCompetitorVolume6mo !== null && avgCompetitorVolume6mo < 3_000) {
     redFlags.push(
@@ -241,6 +301,13 @@ function rulesDecision(
     flowStatus === "live"
       ? `Road intelligence (TomTom): ${roadLabel ?? "Unknown"} (${roadClass ?? "?"}) · traffic ${congestion ?? "unknown"} · incident risk ${incidentRisk ?? "unknown"} · ${closures} closure(s)`
       : `Road intelligence: TomTom data unavailable (API key not configured)`,
+    parcelLive
+      ? `Parcel (Regrid): ${lotSqFt?.toLocaleString() ?? "?"} sqft · ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "dimensions unavailable"} · zoning: ${parcelZoning ?? "unknown"} · owner: ${parcelOwner ?? "unknown"}`
+      : `Parcel data: not available (US-only or Regrid key not configured)`,
+    parcelLive && parcelLastSale
+      ? `Land value (Regrid): last sale ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` on ${parcelLastDate}` : ""} · assessed land ${parcelLandVal ? fmtUSD(parcelLandVal) : "n/a"}`
+      : `Land value: no Regrid data`,
+    `Suggested investment range (BLS CPI-adjusted): ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} · land ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} · construction ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)} · equipment ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)} [${inv.sourceNote}]`,
   ];
 
   // ── Calculation breakdown ───────────────────────────────────────────────────
@@ -270,6 +337,24 @@ function rulesDecision(
         `Road class ${roadLabel} (${roadClass}) · Traffic ${congestion} · ` +
         `Incident risk ${incidentRisk} · ${closures} active closure(s) within 2km. `
       : `\n\nROAD INTELLIGENCE: TomTom data unavailable. `) +
+    (parcelLive
+      ? `\n\nPARCEL DATA (Regrid county records — live): ` +
+        `Lot: ${lotSqFt?.toLocaleString() ?? "?"} sqft (${lotAcres?.toFixed(2) ?? "?"} acres) · ` +
+        `Dimensions: ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "unavailable"} · ` +
+        `Zoning: ${parcelZoning ?? "unknown"}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""} · ` +
+        `Land use: ${parcelLandUse ?? "unknown"} · ` +
+        `Owner: ${parcelOwner ?? "unknown"} · ` +
+        (parcelLastSale ? `Last sale: ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` (${parcelLastDate})` : ""} · ` : "") +
+        (parcelLandVal ? `Assessed land: ${fmtUSD(parcelLandVal)} · ` : "") +
+        `Express tunnel feasibility: ${lotSqFt !== null ? (lotSqFt >= EXPRESS_MIN_SQFT ? "FITS" : lotSqFt >= SELFSERVE_MIN_SQFT ? "TOO SMALL for Express — self-serve/in-bay only" : "TOO SMALL for any car wash format") : "unknown"}. `
+      : `\n\nPARCEL DATA: Not available (US-only via Regrid, or REGRID_API_KEY not configured). `) +
+    `\n\nINVESTMENT RANGE (BLS CPI-adjusted, ${inv.dataTimestamp}): ` +
+    `${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} total. ` +
+    `Breakdown — Land: ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} · ` +
+    `Construction: ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)} · ` +
+    `Equipment: ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)} · ` +
+    `Fees: ${fmtUSD(inv.breakdown.fees.min)}–${fmtUSD(inv.breakdown.fees.max)}. ` +
+    `Source: ${inv.sourceNote}. ` +
     `\n\nVERDICT: ${verdict} — ` +
     (verdict === "INVEST"
       ? `Budget sufficient, location fundamentals strong, financials viable.`
@@ -355,6 +440,25 @@ export async function POST(req: NextRequest) {
     const incidentRisk = _tomtom?.incidents.accessRiskLevel ?? null;
     const closures     = _tomtom?.incidents.closureCount ?? 0;
 
+    // Extract Regrid parcel variables for use in AI prompts below
+    const parcel         = result.parcel;
+    const parcelLive     = parcel?.status === "live";
+    const lotSqFt        = parcel?.lotSqFt ?? null;
+    const lotAcres       = parcel?.lotAcres ?? null;
+    const widthFt        = parcel?.dimensions?.widthFt ?? null;
+    const depthFt        = parcel?.dimensions?.depthFt ?? null;
+    const parcelZoning   = parcel?.zoning ?? null;
+    const parcelLandUse  = parcel?.landUse ?? null;
+    const parcelLastSale = parcel?.lastSalePrice ?? null;
+    const parcelLandVal  = parcel?.assessedLandUSD ?? null;
+    const parcelOwner    = parcel?.owner ?? null;
+    const parcelLastDate = parcel?.lastSaleDate ?? null;
+    const EXPRESS_MIN_SQFT   = 30_625;
+    const SELFSERVE_MIN_SQFT =  7_000;
+
+    // Extract investment suggestion for AI prompts
+    const inv = result.investmentSuggestion;
+
     // ── AI enhancement (Claude or OpenAI) ──────────────────────────────────
     // When ANTHROPIC_API_KEY or OPENAI_API_KEY is set, Claude/GPT enriches
     // the decision with real-world market insight on top of the rules output.
@@ -409,12 +513,18 @@ ROAD INTELLIGENCE [source: TomTom APIs — live data]: ${
     ? `Road class: ${roadLabel} (${roadClass}) | Traffic: ${congestion} | Incident risk: ${incidentRisk} | Active closures: ${closures} | 5-min drive-time isochrone: ${result.tomtom?.isochrones.fiveMin.status === "live" ? result.tomtom.isochrones.fiveMin.boundaryPoints + " boundary points" : "unavailable"} | 10-min isochrone: ${result.tomtom?.isochrones.tenMin.status === "live" ? result.tomtom.isochrones.tenMin.boundaryPoints + " boundary points" : "unavailable"}`
     : "TomTom data unavailable"
 }
+PARCEL DATA [source: Regrid county records — live]: ${
+  parcelLive
+    ? `Lot: ${lotSqFt?.toLocaleString() ?? "?"} sqft (${lotAcres?.toFixed(2) ?? "?"} acres) | Dimensions: ${widthFt ? `${widthFt}ft × ${depthFt}ft` : "unavailable"} | Zoning: ${parcelZoning ?? "unknown"}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""} | Land use: ${parcelLandUse ?? "unknown"} | Owner: ${parcelOwner ?? "unknown"} | Last sale: ${parcelLastSale ? fmtUSD(parcelLastSale) : "unknown"}${parcelLastDate ? ` (${parcelLastDate})` : ""} | Assessed land: ${parcelLandVal ? fmtUSD(parcelLandVal) : "unknown"} | Express tunnel fits: ${lotSqFt !== null ? (lotSqFt >= EXPRESS_MIN_SQFT ? "YES" : "NO — too small") : "unknown"}`
+    : "Not available (US-only, or REGRID_API_KEY not configured)"
+}
+INVESTMENT RANGE [source: ${inv.sourceNote}]: Total ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} | Land ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} | Construction ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)} | Equipment ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)} | Fees ${fmtUSD(inv.breakdown.fees.min)}–${fmtUSD(inv.breakdown.fees.max)}
 Existing red flags: ${decision.redFlags.join("; ")}
 Existing green flags: ${decision.greenFlags.join("; ")}`;
 
         const aiRes = await client.messages.create({
           model: "claude-sonnet-4-6",
-          max_tokens: 800,
+          max_tokens: 1000,
           messages: [{ role: "user", content: aiPrompt }],
         });
 
@@ -499,8 +609,25 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                     `- 10-min drive-time isochrone: ${result.tomtom?.isochrones.tenMin.status === "live" ? "computed (" + result.tomtom.isochrones.tenMin.boundaryPoints + " boundary points)" : "unavailable"}\n` +
                     `- 15-min drive-time isochrone: ${result.tomtom?.isochrones.fifteenMin.status === "live" ? "computed (" + result.tomtom.isochrones.fifteenMin.boundaryPoints + " boundary points)" : "unavailable"}\n\n`
                   : "- TomTom data unavailable\n\n") +
+                (parcelLive
+                  ? `PARCEL DATA [source: Regrid county records — live]:\n` +
+                    `- Lot size: ${lotSqFt?.toLocaleString() ?? "?"} sqft (${lotAcres?.toFixed(2) ?? "?"} acres)\n` +
+                    `- Dimensions: ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "unavailable"}\n` +
+                    `- Zoning: ${parcelZoning ?? "unknown"}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""}\n` +
+                    `- Land use: ${parcelLandUse ?? "unknown"}\n` +
+                    `- Owner: ${parcelOwner ?? "unknown"}\n` +
+                    (parcelLastSale ? `- Last sale: ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` on ${parcelLastDate}` : ""}\n` : "") +
+                    (parcelLandVal ? `- Assessed land value: ${fmtUSD(parcelLandVal)}\n` : "") +
+                    `- Express tunnel fit (needs 30,625 sqft min): ${lotSqFt !== null ? (lotSqFt >= EXPRESS_MIN_SQFT ? "YES — fits" : "NO — too small") : "unknown"}\n\n`
+                  : `PARCEL DATA: Not available (US-only via Regrid API, or REGRID_API_KEY not configured).\n\n`) +
+                `INVESTMENT RANGE [source: ${inv.sourceNote}]:\n` +
+                `- Total: ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)}\n` +
+                `- Land: ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)}\n` +
+                `- Construction: ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)}\n` +
+                `- Equipment: ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)}\n` +
+                `- Permits & fees: ${fmtUSD(inv.breakdown.fees.min)}–${fmtUSD(inv.breakdown.fees.max)}\n\n` +
                 `INITIAL VERDICT: ${decision.verdict}\n\n` +
-                `Evaluate the site against all 5 criteria and include relevant criteria findings in your redFlags and greenFlags. Include road intelligence in Criterion 4 (VISIBILITY & ACCESS). Return this exact JSON structure:\n` +
+                `Evaluate the site against all 5 criteria and include relevant criteria findings in your redFlags and greenFlags. Include road intelligence in Criterion 4 (VISIBILITY & ACCESS) and parcel data in Criterion 3 (PHYSICAL FIT). Return this exact JSON structure:\n` +
                 `{\n` +
                 `  "decisionSummary": "2-3 sentences specific to this location, budget, and 5-criteria assessment",\n` +
                 `  "recommendation": "One concrete actionable next step for the investor",\n` +
