@@ -145,7 +145,8 @@ export function analyzeReviews(reviews: PlaceReview[]): ReviewSentiment {
 // ─── Competitor threat analysis ───────────────────────────────────────────────
 export function analyzeCompetitor(
   place: PlaceResult,
-  distanceMiles: number
+  distanceMiles: number,
+  estimatedVolume: import("./types").EstimatedVolume
 ): CompetitorAnalysis {
   const reviews = place.reviews ?? [];
   const sentiment = analyzeReviews(reviews);
@@ -163,7 +164,7 @@ export function analyzeCompetitor(
   else if (distanceMiles < 1.5 && strengthScore > 50) threatLevel = "MEDIUM";
   else threatLevel = "LOW";
 
-  return { place, distanceMiles, sentiment, strengthScore, threatLevel };
+  return { place, distanceMiles, sentiment, strengthScore, threatLevel, estimatedVolume };
 }
 
 // ─── Traffic signal scoring ───────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import {
   MapPin, ArrowLeft, RefreshCw, AlertTriangle,
   TrendingUp, Users, DollarSign, Target, Lightbulb,
   CheckCircle, XCircle, ChevronDown, ChevronUp,
-  Share2, Download,
+  Share2, Download, Navigation,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
@@ -37,6 +37,10 @@ const FinalDecisionPanel = dynamic(
 const SatelliteView = dynamic(
   () => import("@/components/SatelliteView"),
   { ssr: false, loading: () => <div className="shimmer h-[380px] rounded-2xl" /> }
+);
+const TomTomPanel = dynamic(
+  () => import("@/components/TomTomPanel"),
+  { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
 );
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
@@ -121,8 +125,8 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         </button>
         {message.includes("API key") && (
           <div className="mt-6 bg-slate-800/60 border border-slate-700/40 rounded-xl p-4 text-left">
-            <p className="text-slate-300 text-xs font-semibold mb-2">Setup Required:</p>
-            <ol className="text-slate-500 text-xs space-y-1 list-decimal list-inside">
+            <p className="text-slate-200 text-xs font-semibold mb-2">Setup Required:</p>
+            <ol className="text-slate-300 text-xs space-y-1 list-decimal list-inside">
               <li>Get a Google Maps API key from Google Cloud Console</li>
               <li>Enable: Maps JS API, Places API, Geocoding API</li>
               <li>Add to .env.local: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY and GOOGLE_MAPS_API_KEY</li>
@@ -155,10 +159,10 @@ function Section({
           </div>
           <div className="text-left">
             <div className="text-white font-bold text-base">{title}</div>
-            {subtitle && <div className="text-slate-500 text-xs mt-0.5">{subtitle}</div>}
+            {subtitle && <div className="text-slate-300 text-xs mt-0.5">{subtitle}</div>}
           </div>
         </div>
-        {open ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+        {open ? <ChevronUp className="w-5 h-5 text-slate-300" /> : <ChevronDown className="w-5 h-5 text-slate-300" />}
       </button>
       {open && <div className="px-6 pb-6">{children}</div>}
     </section>
@@ -169,9 +173,10 @@ function Section({
 function AnalysisPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const address  = searchParams.get("address") ?? "";
-  const budget   = searchParams.get("budget")  ?? "";
-  const currCode = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
+  const address     = searchParams.get("address")  ?? "";
+  const budget      = searchParams.get("budget")   ?? "";
+  const currCode    = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
+  const radiusMiles = parseFloat(searchParams.get("radius") ?? "5") || 5;
 
   const [result, setResult]   = useState<SiteAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -214,7 +219,7 @@ function AnalysisPageInner() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, budget }),
+        body: JSON.stringify({ address, budget, radiusMiles }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -303,7 +308,7 @@ function AnalysisPageInner() {
 
             {/* Summary */}
             <div>
-              <div className="text-slate-400 text-sm mb-1">
+              <div className="text-slate-300 text-sm mb-1">
                 Analysis for
               </div>
               <h1 className="text-white font-black text-xl md:text-2xl mb-3 leading-tight">
@@ -348,7 +353,7 @@ function AnalysisPageInner() {
               </div>
 
               {/* Analyzed at */}
-              <div className="mt-6 text-slate-600 text-xs">
+              <div className="mt-6 text-slate-400 text-xs">
                 Analyzed {new Date(result.analyzedAt).toLocaleString()} ·{" "}
                 {reviewInsights.totalReviewsAnalyzed} reviews studied ·{" "}
                 {competitors.length} competitors found
@@ -405,10 +410,21 @@ function AnalysisPageInner() {
           <TrafficSignalsPanel signals={trafficSignals} insights={reviewInsights} />
         </Section>
 
+        {/* ── TomTom Road Intelligence ─────────────────────────────── */}
+        {result.tomtom && (
+          <Section
+            title="Road Intelligence"
+            subtitle="Live road speed, drive-time trade area & active incidents — powered by TomTom"
+            icon={<Navigation className="w-5 h-5 text-purple-400" />}
+          >
+            <TomTomPanel data={result.tomtom} />
+          </Section>
+        )}
+
         {/* ── Competitors ─────────────────────────────────────────── */}
         <Section
           title={`Competitor Analysis (${competitors.length} found)`}
-          subtitle="Every car wash within 5 miles — ratings, reviews, and weaknesses"
+          subtitle={`Every car wash within ${result.radiusMiles ?? radiusMiles} miles — ratings, reviews, and weaknesses`}
           icon={<Users className="w-5 h-5 text-yellow-400" />}
           defaultOpen={competitors.length > 0}
         >
@@ -439,15 +455,15 @@ function AnalysisPageInner() {
             <div className="mb-4 flex items-center gap-3">
               <div className="bg-slate-700/40 rounded-xl px-4 py-2 text-center">
                 <div className="text-white font-black text-2xl">{reviewInsights.avgCompetitorRating.toFixed(1)}★</div>
-                <div className="text-slate-500 text-xs">Avg Competitor Rating</div>
+                <div className="text-slate-300 text-xs">Avg Competitor Rating</div>
               </div>
               <div className="bg-slate-700/40 rounded-xl px-4 py-2 text-center">
                 <div className="text-white font-black text-2xl">{reviewInsights.totalReviewsAnalyzed}</div>
-                <div className="text-slate-500 text-xs">Reviews Analyzed</div>
+                <div className="text-slate-300 text-xs">Reviews Analyzed</div>
               </div>
               <div className="bg-slate-700/40 rounded-xl px-4 py-2 text-center">
                 <div className="text-white font-black text-2xl">{reviewInsights.dominantComplaints.length}</div>
-                <div className="text-slate-500 text-xs">Complaint Types</div>
+                <div className="text-slate-300 text-xs">Complaint Types</div>
               </div>
             </div>
 
@@ -464,7 +480,7 @@ function AnalysisPageInner() {
                       <div className="text-orange-400 text-xs">{complaint.count} mention{complaint.count !== 1 ? "s" : ""} across reviews</div>
                     </div>
                   </div>
-                  <p className="text-slate-400 text-xs leading-relaxed">{complaint.opportunity}</p>
+                  <p className="text-slate-200 text-xs leading-relaxed">{complaint.opportunity}</p>
                 </div>
               ))}
             </div>
@@ -528,10 +544,109 @@ function AnalysisPageInner() {
           />
         </Section>
 
+        {/* ── Data Sources Registry ────────────────────────────────── */}
+        {result.dataSources && (
+          <div className="bg-slate-800/30 border border-slate-700/30 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-lg">🔍</span>
+              <div>
+                <h3 className="text-white font-bold text-sm">Data Sources &amp; Methodology</h3>
+                <p className="text-slate-300 text-xs">Every number in this report comes from a disclosed source. Nothing is made up.</p>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              {[
+                {
+                  label: "Competitor Data",
+                  icon: "🏪",
+                  value: result.dataSources.competitors,
+                  badge: "Live",
+                  badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+                },
+                {
+                  label: "Traffic Estimate",
+                  icon: "🚗",
+                  value: result.dataSources.traffic,
+                  badge: "Live formula",
+                  badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+                },
+                {
+                  label: "Financial Model",
+                  icon: "📊",
+                  value: result.dataSources.financialModel,
+                  badge: "404 Excel 2017",
+                  badgeColor: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+                },
+                {
+                  label: "Labour / Wage Data",
+                  icon: "👷",
+                  value: result.dataSources.wageData,
+                  badge: result.dataSources.wageData.startsWith("ILO") ? "Live · ILO ILOSTAT" : "Fallback estimate",
+                  badgeColor: result.dataSources.wageData.startsWith("ILO")
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                    : "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+                },
+                {
+                  label: "Investment Cost Range",
+                  icon: "💰",
+                  value: result.dataSources.investmentRange,
+                  badge: "404 model + indices",
+                  badgeColor: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+                },
+                {
+                  label: "Exchange Rates",
+                  icon: "💱",
+                  value: result.dataSources.exchangeRates,
+                  badge: "Live · ECB",
+                  badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+                },
+                {
+                  label: "Competitor Volume",
+                  icon: "📈",
+                  value: result.dataSources.competitorVolume,
+                  badge: result.dataSources.competitorVolume.startsWith("Not") ? "Not configured" : "Live · SerpApi",
+                  badgeColor: result.dataSources.competitorVolume.startsWith("Not")
+                    ? "bg-slate-600/40 text-slate-400 border-slate-600/40"
+                    : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+                },
+                {
+                  label: "Road Intelligence",
+                  icon: "🛣️",
+                  value: result.dataSources.tomtomTraffic,
+                  badge: result.dataSources.tomtomTraffic.startsWith("Not") ? "Not configured" : "Live · TomTom",
+                  badgeColor: result.dataSources.tomtomTraffic.startsWith("Not")
+                    ? "bg-slate-600/40 text-slate-400 border-slate-600/40"
+                    : "bg-purple-500/20 text-purple-300 border-purple-500/30",
+                },
+              ].map((item) => (
+                <div key={item.label} className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm">{item.icon}</span>
+                      <span className="text-white text-xs font-semibold">{item.label}</span>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${item.badgeColor} flex-shrink-0`}>
+                      {item.badge}
+                    </span>
+                  </div>
+                  <p className="text-slate-300 text-[10px] leading-relaxed">{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-slate-400 text-[10px] text-center pt-1">
+              Analysis run: {new Date(result.analyzedAt).toLocaleString()} ·
+              Live data reflects market conditions at time of analysis ·
+              All projections are estimates — verify with qualified professionals before committing capital.
+            </p>
+          </div>
+        )}
+
         {/* ── CTA ─────────────────────────────────────────────────── */}
         <div className="bg-gradient-to-r from-blue-600/20 to-emerald-600/20 border border-blue-500/20 rounded-3xl p-8 text-center">
           <h3 className="text-white font-black text-2xl mb-2">Want to Analyze Another Location?</h3>
-          <p className="text-slate-400 mb-6 text-sm">Compare multiple sites to find the absolute best spot for your investment.</p>
+          <p className="text-slate-300 mb-6 text-sm">Compare multiple sites to find the absolute best spot for your investment.</p>
           <button
             onClick={() => router.push("/")}
             className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold px-8 py-3 rounded-xl transition-all flex items-center gap-2 mx-auto"
@@ -542,7 +657,7 @@ function AnalysisPageInner() {
         </div>
 
         {/* Footer note */}
-        <p className="text-slate-700 text-xs text-center pb-4">
+        <p className="text-slate-400 text-xs text-center pb-4">
           AVW Site Intel · Powered by Google Maps Platform · For informational purposes only.
           Projections are estimates based on industry benchmarks and should be verified by qualified professionals.
         </p>

@@ -127,7 +127,7 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
           <h3 className="text-white font-bold text-base leading-tight mb-1 line-clamp-2">
             {place.name}
           </h3>
-          <div className="flex items-center gap-1 text-slate-400 text-xs">
+          <div className="flex items-center gap-1 text-slate-300 text-xs">
             <MapPin className="w-3 h-3 flex-shrink-0" />
             <span className="line-clamp-1">{place.vicinity}</span>
           </div>
@@ -137,13 +137,13 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-slate-700/30 rounded-xl p-2.5 text-center">
             <StarRating rating={place.rating ?? 0} />
-            <div className="text-slate-400 text-xs mt-1">{reviewCount.toLocaleString()} reviews</div>
+            <div className="text-slate-300 text-xs mt-1">{reviewCount.toLocaleString()} reviews</div>
           </div>
           <div className="bg-slate-700/30 rounded-xl p-2.5 text-center">
             <div className="text-white font-bold text-lg">
               {distanceMiles < 0.1 ? "< 0.1" : distanceMiles.toFixed(1)}
             </div>
-            <div className="text-slate-400 text-xs">mi away</div>
+            <div className="text-slate-300 text-xs">mi away</div>
           </div>
           <div className="bg-slate-700/30 rounded-xl p-2.5 text-center">
             <div
@@ -152,13 +152,13 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
             >
               {strengthScore}
             </div>
-            <div className="text-slate-400 text-xs">strength</div>
+            <div className="text-slate-300 text-xs">strength</div>
           </div>
         </div>
 
         {/* Competitor strength bar */}
         <div>
-          <div className="flex justify-between text-xs text-slate-400 mb-1">
+          <div className="flex justify-between text-xs text-slate-200 mb-1">
             <span>Competitor Strength</span>
             <span className="text-white font-semibold">{strengthScore}/100</span>
           </div>
@@ -170,10 +170,52 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
           </div>
         </div>
 
+        {/* Estimated 6-month volume */}
+        <div className={`rounded-xl p-3 border ${
+          competitor.estimatedVolume.sixMonthEstimate !== null
+            ? "bg-blue-500/5 border-blue-500/20"
+            : "bg-slate-700/20 border-slate-700/40"
+        }`}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-slate-200 text-xs font-semibold uppercase tracking-wider">
+              Est. Cars Processed (6 months)
+            </span>
+            {competitor.estimatedVolume.sixMonthEstimate !== null && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                competitor.estimatedVolume.confidence === "high"   ? "bg-emerald-500/20 text-emerald-300" :
+                competitor.estimatedVolume.confidence === "medium" ? "bg-yellow-500/20 text-yellow-300"  :
+                                                                      "bg-orange-500/20 text-orange-300"
+              }`}>
+                {competitor.estimatedVolume.confidence.toUpperCase()} CONFIDENCE
+              </span>
+            )}
+          </div>
+
+          {competitor.estimatedVolume.sixMonthEstimate !== null ? (
+            <div className="text-2xl font-black text-blue-300">
+              ~{competitor.estimatedVolume.sixMonthEstimate.toLocaleString()}
+              <span className="text-slate-300 text-xs font-normal ml-1">cars</span>
+            </div>
+          ) : (
+            <div className="text-slate-300 text-sm font-medium">Data unavailable</div>
+          )}
+
+          {/* Always show the method — full transparency, no black boxes */}
+          <details className="mt-1.5 group">
+            <summary className="list-none text-[10px] text-slate-300 hover:text-white cursor-pointer transition-colors">
+              <span className="group-open:hidden">▶ How this is calculated</span>
+              <span className="hidden group-open:inline">▼ How this is calculated</span>
+            </summary>
+            <p className="text-slate-200 text-[10px] leading-relaxed mt-1">
+              {competitor.estimatedVolume.method}
+            </p>
+          </details>
+        </div>
+
         {/* Complaints with images */}
         {sentiment.topComplaints.length > 0 && (
           <div className="border-t border-slate-700/40 pt-3">
-            <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
+            <p className="text-slate-200 text-xs font-semibold uppercase tracking-wider mb-2">
               Customer Pain Points → Your Opportunity
             </p>
             <div className="space-y-2">
@@ -192,7 +234,7 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
                   </div>
                   <div className="min-w-0">
                     <div className="text-orange-300 text-xs font-semibold leading-tight">{complaint.category}</div>
-                    <div className="text-slate-400 text-xs mt-0.5 leading-relaxed max-h-8 group-hover/pain:max-h-48 overflow-hidden transition-[max-height] duration-500 ease-in-out">{complaint.opportunity}</div>
+                    <div className="text-slate-200 text-xs mt-0.5 leading-relaxed max-h-8 group-hover/pain:max-h-48 overflow-hidden transition-[max-height] duration-500 ease-in-out">{complaint.opportunity}</div>
                   </div>
                 </div>
               ))}
@@ -202,10 +244,10 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
 
         {/* View on Google Maps */}
         <a
-          href={`https://www.google.com/maps/place/?q=place_id:${place.place_id}`}
+          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${place.place_id}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-auto flex items-center justify-center gap-2 border border-slate-600/40 hover:border-blue-500/50 bg-slate-700/20 hover:bg-blue-500/10 text-slate-400 hover:text-blue-400 text-xs font-semibold py-2.5 rounded-xl transition-all duration-200"
+          className="mt-auto flex items-center justify-center gap-2 border border-slate-600/40 hover:border-blue-500/50 bg-slate-700/20 hover:bg-blue-500/10 text-slate-200 hover:text-blue-300 text-xs font-semibold py-2.5 rounded-xl transition-all duration-200"
         >
           <MapPin className="w-3 h-3" />
           View on Google Maps
@@ -226,7 +268,7 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
               </div>
               <div>
                 <div className="text-red-300 text-xs font-semibold">Strong Competitor</div>
-                <div className="text-slate-400 text-xs mt-0.5 leading-relaxed">
+                <div className="text-slate-200 text-xs mt-0.5 leading-relaxed">
                   High ratings with few complaints. Differentiate on technology or premium service to compete.
                 </div>
               </div>

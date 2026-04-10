@@ -221,6 +221,7 @@ export default function LandingPage() {
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const [address, setAddress] = useState("");
   const [budget, setBudget] = useState("");
+  const [radiusMiles, setRadiusMiles] = useState(5);
   const [loading, setLoading] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
   const [error, setError] = useState("");
@@ -292,7 +293,7 @@ export default function LandingPage() {
     setError("");
     setBudgetError("");
     setLoading(true);
-    const params = new URLSearchParams({ address: val, budget, currency: currency.code });
+    const params = new URLSearchParams({ address: val, budget, currency: currency.code, radius: radiusMiles.toString() });
     router.push(`/analysis?${params.toString()}`);
   };
 
@@ -394,6 +395,32 @@ export default function LandingPage() {
                   <span>⚠</span> {budgetError}
                 </p>
               )}
+
+              {/* Radius selector */}
+              <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
+                <MapPin className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                <span className="text-slate-400 text-xs whitespace-nowrap">Analysis radius:</span>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[1, 2, 3, 5, 7, 10].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setRadiusMiles(m)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                        radiusMiles === m
+                          ? "bg-blue-500/25 border-blue-500/50 text-blue-300"
+                          : "bg-slate-700/30 border-slate-700/50 text-slate-500 hover:text-slate-300 hover:border-slate-600"
+                      }`}
+                    >
+                      {m} mi
+                    </button>
+                  ))}
+                </div>
+                <span className="ml-auto text-slate-600 text-[10px] whitespace-nowrap hidden sm:block">
+                  Competitors · traffic signals · incidents
+                </span>
+              </div>
+
               <button
                 onClick={handleAnalyze}
                 disabled={loading}
@@ -415,7 +442,7 @@ export default function LandingPage() {
             </div>
             {error && <p className="mt-3 text-red-400 text-sm text-center">{error}</p>}
             <p className="mt-4 text-xs text-slate-300 text-center">
-              Powered by Google Maps Platform · Analysis covers a 5-mile radius
+              Powered by Google Maps · TomTom · ILO · World Bank · Analysis covers a {radiusMiles}-mile radius
             </p>
           </div>
         </div>

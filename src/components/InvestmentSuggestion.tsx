@@ -73,10 +73,10 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
               <span className="text-white font-semibold">{data.countryName}</span>
             </p>
             <div className="text-3xl md:text-4xl font-black text-white">
-              {minTotal} <span className="text-slate-400 font-medium text-2xl">to</span> {maxTotal}
+              {minTotal} <span className="text-slate-200 font-medium text-2xl">to</span> {maxTotal}
             </div>
             {currency.code !== "USD" && (
-              <p className="text-slate-400 text-xs mt-1">
+              <p className="text-slate-300 text-xs mt-1">
                 USD equivalent: {minUSD} to {maxUSD} &middot; Rate: 1 USD = {rateFormatted} {currency.code}
               </p>
             )}
@@ -86,7 +86,7 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
               {data.cityTier === "Major Metro" ? "🏙️" : data.cityTier === "Urban" ? "🏘️" : "🌆"}
             </div>
             <div className="text-white font-bold text-sm">{data.cityTier}</div>
-            <div className="text-slate-400 text-xs">{data.countryName}</div>
+            <div className="text-slate-300 text-xs">{data.countryName}</div>
           </div>
         </div>
       </div>
@@ -101,7 +101,7 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
               <div className="flex justify-between items-end mb-1.5">
                 <span className="text-slate-300 text-sm">{item.label}</span>
                 <span className="text-white font-bold text-sm">
-                  {fmt(bd.min, rate, symbol)} <span className="text-slate-500 font-normal">–</span> {fmt(bd.max, rate, symbol)}
+                  {fmt(bd.min, rate, symbol)} <span className="text-slate-300 font-normal">–</span> {fmt(bd.max, rate, symbol)}
                 </span>
               </div>
               <AnimatedBar pct={item.pct * 2.2} color={item.color} />
@@ -129,8 +129,8 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
             </div>
           </div>
         </div>
-        <p className="text-slate-500 text-xs border-t border-slate-700/30 pt-2">
-          The gap between the two is the difference between <span className="text-slate-400">"barely functional"</span> and <span className="text-slate-400">"built to compete and generate returns."</span> Use the Suggested Range for planning; use the Minimum Viable as your hard floor.
+        <p className="text-slate-300 text-xs border-t border-slate-700/30 pt-2">
+          The gap between the two is the difference between <span className="text-slate-200">"barely functional"</span> and <span className="text-slate-200">"built to compete and generate returns."</span> Use the Suggested Range for planning; use the Minimum Viable as your hard floor.
         </p>
       </div>
 
@@ -158,7 +158,7 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
         <div className="flex items-center gap-2 pt-1">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-emerald-400 text-xs font-semibold">Live exchange rate</span>
-          <span className="text-slate-500 text-xs">
+          <span className="text-slate-300 text-xs">
             — fetched {new Date(fetchedAt).toLocaleTimeString()} &middot; Source: European Central Bank
           </span>
         </div>
@@ -170,7 +170,7 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
           <span className="font-bold">Data Sources:</span> {data.sourceNote}
           {data.methodology && " · AI cost analysis: Claude claude-sonnet-4-6 (Anthropic)."}
         </p>
-        <p className="text-slate-500 text-xs mt-2">
+        <p className="text-slate-300 text-xs mt-2">
           Analysis generated: {new Date(data.dataTimestamp).toLocaleString()}
         </p>
       </div>

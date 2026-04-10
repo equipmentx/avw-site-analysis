@@ -10,6 +10,7 @@
  */
 
 import type { FinancialProjection, FinancialAssumptions, YearlyProjection } from "./types";
+import type { WageRates } from "./iloWages";
 
 // ─── Car Wash Format Tiers ────────────────────────────────────────────────────
 // Budget determines what you can realistically build.
@@ -154,12 +155,12 @@ function calcMonthlyPayment(principal: number, annualRate: number, years: number
   return (principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
 }
 
-function calcAnnualLabor(year: number): number {
-  const sm  = LABOR.siteManager.hourlyRate * LABOR.siteManager.hoursPerYear;
-  const ft1 = LABOR.fullTime1.hourlyRate   * LABOR.fullTime1.hoursPerYear;
-  const ft2 = LABOR.fullTime2.hourlyRate   * LABOR.fullTime2.hoursPerYear;
+function calcAnnualLabor(year: number, staffHourly: number, managerHourly: number): number {
+  const sm  = managerHourly * LABOR.siteManager.hoursPerYear;
+  const ft1 = staffHourly   * LABOR.fullTime1.hoursPerYear;
+  const ft2 = staffHourly   * LABOR.fullTime2.hoursPerYear;
   const base = sm + ft1 + ft2;
-  // Excel rows 73-74: FT staff get raises; site manager raise is separate
+  // Excel rows 73-74: FT staff get raises each year
   const raise = Math.pow(1 + LABOR.yr2Raise, Math.max(0, year - 1));
   return base * raise * (1 + LABOR.burden);
 }
@@ -175,6 +176,8 @@ function buildYearProjection(
   constructionCost:  number,
   loanAmount:        number,
   monthlyDebtService: number,
+  staffHourly:       number,
+  managerHourly:     number,
 ): YearlyProjection {
 
   // Traffic grows 2%/year (Excel row 7)
@@ -204,7 +207,7 @@ function buildYearProjection(
   // COGS — variable costs per car (FIXED from Excel, same for all formats)
   const chemCost  = totalAnnualCars * VAR_CHEM_COST_PER_CAR;
   const varCost   = totalAnnualCars * TOTAL_VAR_COST_PER_CAR;
-  const laborCOGS = calcAnnualLabor(year);
+  const laborCOGS = calcAnnualLabor(year, staffHourly, managerHourly);
   const totalCOGS = chemCost + varCost + laborCOGS;
 
   const grossProfit = netRevenue - totalCOGS;
@@ -257,9 +260,16 @@ function buildYearProjection(
 export function runFinancialModel(
   estimatedDailyTraffic: number,
   investmentBudget?: number,
+  wageRates?: WageRates,
 ): FinancialProjection {
 
   const budget = investmentBudget && investmentBudget > 0 ? investmentBudget : 0;
+
+  // Use live wages if available (ILO or World Bank); fall back to Excel 2017 baseline
+  // When wages are unavailable, the Excel rates are used but clearly disclosed as such.
+  const wagesAvailable = wageRates && wageRates.source !== "unavailable" && wageRates.staffHourlyUSD > 0;
+  const staffHourly   = wagesAvailable ? wageRates!.staffHourlyUSD   : LABOR.fullTime1.hourlyRate;
+  const managerHourly = wagesAvailable ? wageRates!.managerHourlyUSD : LABOR.siteManager.hourlyRate;
 
   // Determine what the user can build with their budget
   const format = getCarWashFormat(budget);
@@ -307,6 +317,7 @@ export function runFinancialModel(
         yr, estimatedDailyTraffic, format,
         landCost, equipmentCost, constructionCost,
         loanAmount, monthlyDebtService,
+        staffHourly, managerHourly,
       ));
     }
   }
@@ -351,6 +362,13 @@ export function runFinancialModel(
     constructionCost,
     interestRate:      FINANCING.annualInterest,
     loanTermYears:     FINANCING.loanTermYears,
+    staffHourlyUSD:    parseFloat(staffHourly.toFixed(2)),
+    managerHourlyUSD:  parseFloat(managerHourly.toFixed(2)),
+    wageSource:        wagesAvailable ? (wageRates!.source as any) : "excel-baseline",
+    wagePeriod:        wagesAvailable ? wageRates!.period : "404 Excel baseline (2017)",
+    wageNote:          wagesAvailable
+      ? wageRates!.note
+      : "Live wage data unavailable — using 404 Financial Model Excel baseline rates ($16/hr staff · $30/hr manager, US 2017). Verify local labour costs with an HR consultant.",
   };
 
   return {

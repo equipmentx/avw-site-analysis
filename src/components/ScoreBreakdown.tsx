@@ -123,11 +123,11 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
               <div className="flex items-center justify-between mb-1.5">
                 <div>
                   <span className="text-white text-sm font-semibold">{meta.label}</span>
-                  <p className="text-slate-400 text-xs">{meta.desc}</p>
+                  <p className="text-slate-300 text-xs">{meta.desc}</p>
                 </div>
                 <div className="text-right ml-3 flex-shrink-0">
                   <span className="text-white font-black text-lg tabular-nums">{current}</span>
-                  <span className="text-slate-500 text-xs">/100</span>
+                  <span className="text-slate-300 text-xs">/100</span>
                   <div className="text-xs font-semibold" style={{ color: strengthColor }}>
                     {strength}
                   </div>

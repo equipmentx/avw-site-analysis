@@ -31,11 +31,11 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
       <div className="bg-gradient-to-r from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-2xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-slate-400 text-sm">Estimated Daily Traffic</div>
+            <div className="text-slate-200 text-sm font-semibold">Estimated Daily Traffic</div>
             <div className="text-4xl font-black text-white mt-1">
               {formatNumber(signals.estimatedDailyTraffic)}
             </div>
-            <div className="text-slate-500 text-xs mt-1">vehicles passing this area per day</div>
+            <div className="text-slate-300 text-xs mt-1">vehicles passing this area per day</div>
           </div>
           <div className="text-6xl">🚗</div>
         </div>
@@ -48,7 +48,7 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
             }}
           />
         </div>
-        <div className="flex justify-between text-xs text-slate-600 mt-1">
+        <div className="flex justify-between text-xs text-slate-400 mt-1">
           <span>Low (2K/day)</span>
           <span>Target: 10K+/day</span>
           <span>High (25K/day)</span>
@@ -69,12 +69,12 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
                     <span>{icon}</span>
                     <div>
                       <span className="text-white text-sm">{label}</span>
-                      <span className="text-slate-600 text-xs ml-2">({desc})</span>
+                      <span className="text-slate-300 text-xs ml-2">({desc})</span>
                     </div>
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="text-white font-bold text-sm">{raw}</span>
-                    <span className="text-slate-500 text-xs ml-1">nearby</span>
+                    <span className="text-slate-300 text-xs ml-1">nearby</span>
                   </div>
                 </div>
                 <div className="h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
@@ -88,7 +88,7 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
           })}
         </div>
         {signals.trafficEstimationMethod && (
-          <p className="text-slate-600 text-xs mt-3 italic leading-relaxed">
+          <p className="text-slate-300 text-xs mt-3 italic leading-relaxed">
             ℹ️ {signals.trafficEstimationMethod}
           </p>
         )}
@@ -105,7 +105,7 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
             <div className={`font-bold text-base ${saturation.color}`}>
               {saturation.label}
             </div>
-            <div className="text-slate-400 text-sm mt-0.5">{saturation.desc}</div>
+            <div className="text-slate-200 text-sm mt-0.5">{saturation.desc}</div>
           </div>
         </div>
       </div>
@@ -124,7 +124,7 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
               </div>
             ))}
           </div>
-          <p className="text-slate-500 text-xs mt-3">
+          <p className="text-slate-300 text-xs mt-3">
             These gaps represent direct opportunities to differentiate and capture market share.
           </p>
         </div>
@@ -134,25 +134,25 @@ export default function TrafficSignalsPanel({ signals, insights }: TrafficSignal
       <div className="grid grid-cols-2 gap-3">
         <div className={`rounded-xl p-4 border ${insights.premiumOpportunity ? "bg-emerald-500/10 border-emerald-500/20" : "bg-slate-800/40 border-slate-700/30"}`}>
           <div className="text-2xl mb-1">{insights.premiumOpportunity ? "💎" : "📊"}</div>
-          <div className={`text-sm font-semibold ${insights.premiumOpportunity ? "text-emerald-400" : "text-slate-400"}`}>
+          <div className={`text-sm font-bold ${insights.premiumOpportunity ? "text-emerald-400" : "text-slate-200"}`}>
             {insights.premiumOpportunity ? "Premium Opportunity" : "Standard Market"}
           </div>
-          <div className="text-slate-500 text-xs mt-1">
+          <div className="text-slate-200 text-xs mt-1 leading-relaxed">
             {insights.premiumOpportunity
-              ? "Low competitor quality = room to charge premium rates"
-              : "Competitive market — match current pricing"}
+              ? "Competitors have low ratings or poor reviews — this means you can charge premium prices and customers will choose you."
+              : "Competitors are well-rated. Match current market pricing and differentiate on service quality."}
           </div>
         </div>
 
         <div className={`rounded-xl p-4 border ${insights.unlimitedPlanDemand ? "bg-blue-500/10 border-blue-500/20" : "bg-slate-800/40 border-slate-700/30"}`}>
           <div className="text-2xl mb-1">♾️</div>
-          <div className={`text-sm font-semibold ${insights.unlimitedPlanDemand ? "text-blue-400" : "text-slate-400"}`}>
-            {insights.unlimitedPlanDemand ? "Unlimited Demand" : "Standard Demand"}
+          <div className={`text-sm font-bold ${insights.unlimitedPlanDemand ? "text-blue-400" : "text-slate-200"}`}>
+            {insights.unlimitedPlanDemand ? "Unlimited Plan Demand" : "Build Volume First"}
           </div>
-          <div className="text-slate-500 text-xs mt-1">
+          <div className="text-slate-200 text-xs mt-1 leading-relaxed">
             {insights.unlimitedPlanDemand
-              ? "High volume signals — launch unlimited membership plan early"
-              : "Build volume first before pushing subscriptions"}
+              ? "High traffic volume detected — launch an unlimited monthly membership plan from day one to lock in recurring revenue."
+              : "Traffic volume is moderate. Focus on attracting repeat customers before rolling out subscription plans."}
           </div>
         </div>
       </div>

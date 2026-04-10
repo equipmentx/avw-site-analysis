@@ -9,6 +9,10 @@ function fmtUSD(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
+// US baseline hourly rates from 404 Excel model (used to assess wage impact)
+const US_BASELINE_STAFF_HOURLY   = 16;
+const US_BASELINE_MANAGER_HOURLY = 30;
+
 // ── Rule-based decision engine (works without any AI API key) ─────────────────
 function rulesDecision(
   result: SiteAnalysisResult,
@@ -18,12 +22,46 @@ function rulesDecision(
   const country     = getCountry(result.countryCode);
   const minRequired = country.minViableUSD;
   const { score, financialProjection: fp, trafficSignals, competitors, reviewInsights } = result;
+  const assumptions = fp.assumptions;
+
+  // ── TomTom road intelligence ───────────────────────────────────────────────
+  const tomtom         = result.tomtom;
+  const roadClass      = tomtom?.trafficFlow.roadClass ?? null;
+  const roadLabel      = tomtom?.trafficFlow.roadClassLabel ?? null;
+  const congestion     = tomtom?.trafficFlow.congestionLevel ?? null;
+  const incidentRisk   = tomtom?.incidents.accessRiskLevel ?? null;
+  const closures       = tomtom?.incidents.closureCount ?? 0;
+  const flowStatus     = tomtom?.trafficFlow.status ?? "unavailable";
 
   // ── Budget feasibility ──────────────────────────────────────────────────────
-  const budgetGap     = minRequired - budgetUSD;
-  const budgetRatio   = budgetUSD / minRequired;
+  const budgetGap      = minRequired - budgetUSD;
+  const budgetRatio    = budgetUSD / minRequired;
   const budgetFeasible = budgetRatio >= 1.0;
   const budgetMarginal = budgetRatio >= 0.6 && budgetRatio < 1.0;
+
+  // ── Wage impact analysis (ILO vs Excel baseline) ────────────────────────────
+  const staffHourly   = assumptions.staffHourlyUSD   ?? US_BASELINE_STAFF_HOURLY;
+  const managerHourly = assumptions.managerHourlyUSD ?? US_BASELINE_MANAGER_HOURLY;
+  const wageSource    = assumptions.wageSource ?? "excel-baseline";
+  const wagePeriod    = assumptions.wagePeriod ?? "estimate";
+  const staffDelta    = staffHourly - US_BASELINE_STAFF_HOURLY;   // positive = more expensive
+  const staffDeltaPct = (staffDelta / US_BASELINE_STAFF_HOURLY) * 100;
+
+  // ── Competitor volume analysis (SerpApi Popular Times) ─────────────────────
+  const competitorsWithVolume = competitors.filter(
+    (c) => c.estimatedVolume?.sixMonthEstimate !== null && c.estimatedVolume?.sixMonthEstimate !== undefined
+  );
+  const totalCompetitorVolume6mo = competitorsWithVolume.reduce(
+    (sum, c) => sum + (c.estimatedVolume.sixMonthEstimate ?? 0), 0
+  );
+  const avgCompetitorVolume6mo = competitorsWithVolume.length > 0
+    ? Math.round(totalCompetitorVolume6mo / competitorsWithVolume.length)
+    : null;
+  const topVolumeCompetitor = competitorsWithVolume.length > 0
+    ? competitorsWithVolume.sort((a, b) =>
+        (b.estimatedVolume.sixMonthEstimate ?? 0) - (a.estimatedVolume.sixMonthEstimate ?? 0)
+      )[0]
+    : null;
 
   // ── Verdict logic ───────────────────────────────────────────────────────────
   let verdict: AiDecision["verdict"];
@@ -65,14 +103,52 @@ function rulesDecision(
 
   // ── Green flags ─────────────────────────────────────────────────────────────
   const greenFlags: string[] = [];
-  if (trafficSignals.estimatedDailyTraffic >= 8_000) greenFlags.push(`High estimated daily traffic: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day`);
+  if (trafficSignals.estimatedDailyTraffic >= 8_000) greenFlags.push(`High daily vehicle count: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing this location (source: TomTom Traffic Flow API — BPR/HCM methodology)`);
   if (score.components.competition >= 60)            greenFlags.push(`Weak competition nearby (score ${score.components.competition}/100) — low market saturation`);
   if (score.components.opportunity >= 65)            greenFlags.push(`Strong opportunity gap: competitors have notable service weaknesses`);
-  if (fp.year1EBITDA > 0)                            greenFlags.push(`Financial model shows positive Year 1 EBITDA: ${fmtUSD(fp.year1EBITDA)}`);
-  if (fp.paybackYears <= 5)                          greenFlags.push(`Estimated payback period of ${fp.paybackYears} years is within industry benchmark (4-7 years)`);
+  if (fp.year1EBITDA > 0)                            greenFlags.push(`Positive Year 1 EBITDA: ${fmtUSD(fp.year1EBITDA)} — model uses ${ ["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live wage data (${wagePeriod})` : "404 Excel baseline wages"} for ${country.name}`);
+  if (fp.paybackYears <= 5)                          greenFlags.push(`Estimated payback of ${fp.paybackYears} years is within the 4–7 year industry benchmark`);
   if (reviewInsights.premiumOpportunity)             greenFlags.push("Low competitor quality signals room to charge premium pricing");
-  if (trafficSignals.nearbyGasStations >= 3)         greenFlags.push(`${trafficSignals.nearbyGasStations} gas stations nearby — strong arterial road traffic indicator`);
-  if (budgetFeasible)                                greenFlags.push(`Budget is fully funded (${(budgetRatio * 100).toFixed(0)}% of minimum threshold)`);
+  if (trafficSignals.nearbyGasStations >= 3)         greenFlags.push(`${trafficSignals.nearbyGasStations} gas stations nearby — strong arterial road traffic indicator (source: Google Places API)`);
+  if (budgetFeasible)                                greenFlags.push(`Budget fully funded at ${(budgetRatio * 100).toFixed(0)}% of minimum threshold`);
+
+  // Wage green flag — lower local wages improve profitability vs US baseline
+  if (staffDeltaPct < -20) {
+    greenFlags.push(
+      `Local wages are ${Math.abs(staffDeltaPct).toFixed(0)}% below the US model baseline ` +
+      `(staff: $${staffHourly.toFixed(2)}/hr vs $${US_BASELINE_STAFF_HOURLY}/hr US baseline) — ` +
+      `improves EBITDA vs a US operation. Source: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel baseline"}.`
+    );
+  }
+
+  // TomTom road intelligence green flags
+  if (flowStatus === "live" && roadClass && ["FRC1", "FRC2", "FRC3"].includes(roadClass)) {
+    greenFlags.push(
+      `Road classification: ${roadLabel} (${roadClass}) — a major/secondary arterial is ideal for a car wash ` +
+      `(high passing traffic, manageable speeds). Source: TomTom Traffic Flow API.`
+    );
+  }
+  if (flowStatus === "live" && congestion === "FREE_FLOW") {
+    greenFlags.push(
+      `Traffic flowing freely at time of analysis — no congestion-related access barriers. ` +
+      `Source: TomTom Traffic Flow API.`
+    );
+  }
+
+  // Competitor volume green flags — market proven active
+  if (topVolumeCompetitor && (topVolumeCompetitor.estimatedVolume.sixMonthEstimate ?? 0) >= 15_000) {
+    greenFlags.push(
+      `Market proven active: top competitor "${topVolumeCompetitor.place.name}" estimated ` +
+      `~${topVolumeCompetitor.estimatedVolume.sixMonthEstimate!.toLocaleString()} cars in last 6 months ` +
+      `(source: Google Maps Popular Times via SerpApi, ${topVolumeCompetitor.estimatedVolume.confidence} confidence).`
+    );
+  }
+  if (avgCompetitorVolume6mo !== null && avgCompetitorVolume6mo >= 8_000) {
+    greenFlags.push(
+      `Competitors averaging ~${avgCompetitorVolume6mo.toLocaleString()} cars/6 months — ` +
+      `confirms active car wash demand in this trade area.`
+    );
+  }
 
   // ── Red flags ───────────────────────────────────────────────────────────────
   const redFlags: string[] = [];
@@ -85,37 +161,121 @@ function rulesDecision(
   if (competitors.length >= 5)                       redFlags.push(`${competitors.length} car washes detected within 5 miles — market may be over-served`);
   if (fp.irr5Year < 10)                              redFlags.push(`5-year IRR of ~${fp.irr5Year}% is below typical 15% investment hurdle rate`);
 
+  // Wage red flag — higher local wages compress margins vs US baseline
+  if (staffDeltaPct > 15) {
+    redFlags.push(
+      `Local wages are ${staffDeltaPct.toFixed(0)}% above the US model baseline ` +
+      `(staff: $${staffHourly.toFixed(2)}/hr vs $${US_BASELINE_STAFF_HOURLY}/hr) — ` +
+      `labour costs compress EBITDA vs standard projections. ` +
+      `Source: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel baseline"}.`
+    );
+  }
+
+  // Wage source disclosure
+  if (wageSource === "excel-baseline" || wageSource === "unavailable") {
+    redFlags.push(
+      `Labour cost data unavailable from live sources (ILO ILOSTAT and World Bank both returned no data for ${country.name}). ` +
+      `404 Excel 2017 US baseline rates used. Verify local wage rates with an HR consultant before committing.`
+    );
+  } else if (wageSource === "world-bank-derived") {
+    redFlags.push(
+      `Labour costs derived from World Bank GNI per capita (ILO direct data unavailable for ${country.name}). ` +
+      `This is a structural estimate — verify actual service-sector wages locally.`
+    );
+  }
+
+  // TomTom red flags
+  if (closures >= 1) {
+    redFlags.push(
+      `${closures} road closure(s) active within 2km of site — direct access may be blocked at time of analysis. ` +
+      `Source: TomTom Traffic Incidents API.`
+    );
+  }
+  if (flowStatus === "live" && roadClass && ["FRC0"].includes(roadClass)) {
+    redFlags.push(
+      `Site is on a motorway/highway (${roadClass}) — too fast for impulse car wash stops. ` +
+      `Customers typically cannot slow down and turn in safely. Source: TomTom Traffic Flow API.`
+    );
+  }
+  if (flowStatus === "live" && roadClass && ["FRC5", "FRC6", "FRC7"].includes(roadClass)) {
+    redFlags.push(
+      `Site is on a minor local road (${roadLabel}) — insufficient passing traffic volume for a ` +
+      `viable car wash operation. Source: TomTom Traffic Flow API.`
+    );
+  }
+  if (flowStatus === "live" && congestion === "HEAVY") {
+    redFlags.push(
+      `Heavy traffic congestion detected near site — ingress/egress may be difficult, reducing ` +
+      `impulse-stop likelihood. Source: TomTom Traffic Flow API.`
+    );
+  }
+
+  // Competitor volume red flags
+  if (competitorsWithVolume.length > 0 && avgCompetitorVolume6mo !== null && avgCompetitorVolume6mo < 3_000) {
+    redFlags.push(
+      `Competitors averaging only ~${avgCompetitorVolume6mo.toLocaleString()} cars/6 months — ` +
+      `low volumes may indicate weak car wash demand in this area. ` +
+      `(source: Google Maps Popular Times via SerpApi)`
+    );
+  }
+  if (totalCompetitorVolume6mo > 60_000 && competitors.length >= 4) {
+    redFlags.push(
+      `Combined competitor volume of ~${totalCompetitorVolume6mo.toLocaleString()} cars/6 months across ${competitorsWithVolume.length} competitors — ` +
+      `market may be near saturation capacity at current traffic levels.`
+    );
+  }
+
   // ── Key factors ─────────────────────────────────────────────────────────────
   const keyFactors: string[] = [
     `Overall location score: ${score.overall}/100 (${score.grade} — ${score.verdict})`,
     `Traffic score: ${score.components.traffic}/100 | Competition: ${score.components.competition}/100 | Opportunity: ${score.components.opportunity}/100`,
-    `Year 1 revenue projection: ${fmtUSD(fp.year1Revenue)} | EBITDA: ${fmtUSD(fp.year1EBITDA)}`,
-    `Year 5 revenue projection: ${fmtUSD(fp.year5Revenue)} | 5-Year IRR: ~${fp.irr5Year}%`,
-    `Competitors found within 5 miles: ${competitors.length} | Market saturation: ${reviewInsights.marketSaturationLevel}`,
-    `Estimated daily traffic: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day`,
+    `Year 1 revenue: ${fmtUSD(fp.year1Revenue)} | EBITDA: ${fmtUSD(fp.year1EBITDA)} | Payback: ${fp.paybackYears} yrs | IRR: ~${fp.irr5Year}%`,
+    `Year 5 revenue: ${fmtUSD(fp.year5Revenue)}`,
+    `Competitors within 5 miles: ${competitors.length} | Market saturation: ${reviewInsights.marketSaturationLevel}`,
+    `Daily vehicle count: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing site (TomTom Traffic Flow API — BPR/HCM)`,
     `Country cost index: ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of US benchmark`,
+    `Labour rates (${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel 2017 baseline"}): staff $${staffHourly.toFixed(2)}/hr · manager $${managerHourly.toFixed(2)}/hr`,
+    competitorsWithVolume.length > 0
+      ? `Competitor volume data (SerpApi): ${competitorsWithVolume.length}/${competitors.length} competitors have Popular Times data · avg ~${avgCompetitorVolume6mo?.toLocaleString() ?? "N/A"} cars/6 months`
+      : `Competitor volume: no SerpApi data available (SERPAPI_KEY not configured or data unavailable)`,
+    flowStatus === "live"
+      ? `Road intelligence (TomTom): ${roadLabel ?? "Unknown"} (${roadClass ?? "?"}) · traffic ${congestion ?? "unknown"} · incident risk ${incidentRisk ?? "unknown"} · ${closures} closure(s)`
+      : `Road intelligence: TomTom data unavailable (API key not configured)`,
   ];
 
   // ── Calculation breakdown ───────────────────────────────────────────────────
   const calculationBreakdown =
     `BUDGET CHECK: Input budget ${fmtUSD(budgetUSD)} ÷ Country minimum ${fmtUSD(minRequired)} = ${(budgetRatio * 100).toFixed(1)}% funded. ` +
     `Country minimum = US Excel baseline $3,663,000 × ${country.name} multiplier ${(country.multiplier * 100).toFixed(0)}% × 0.41 viability factor. ` +
-    `\n\nSCORE BREAKDOWN: Overall ${score.overall}/100 computed as: ` +
+    `\n\nSCORE BREAKDOWN: Overall ${score.overall}/100 = ` +
     `Traffic (${score.components.traffic}/100 × 25%) + Competition (${score.components.competition}/100 × 25%) + ` +
     `Opportunity (${score.components.opportunity}/100 × 20%) + Market (${score.components.market}/100 × 15%) + ` +
-    `Financial (${score.components.financial}/100 × 15%) = ${score.overall}/100. ` +
-    `\n\nTRAFFIC ESTIMATE: Computed from ${trafficSignals.nearbyGasStations} gas stations ×1,500 + ` +
-    `${trafficSignals.nearbyGroceryStores} grocers ×900 + ${trafficSignals.nearbyFastFood} restaurants ×400 + ` +
-    `${trafficSignals.nearbyShopping} shopping centers ×700 + ${trafficSignals.nearbySchools} schools ×300 = ` +
-    `${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day (capped at 25,000). ` +
-    `\n\nFINANCIAL MODEL (from 404.xlsx): Capture rate 2% of daily traffic × 26 days/month × $12.96 avg revenue/car. ` +
-    `Year 1 revenue ${fmtUSD(fp.year1Revenue)}, EBITDA ${fmtUSD(fp.year1EBITDA)}, payback ${fp.paybackYears} years. ` +
+    `Financial (${score.components.financial}/100 × 15%). All inputs from Google Places API live data. ` +
+    `\n\nVEHICLE COUNT (TomTom Traffic Flow API — BPR/HCM methodology): ` +
+    `${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing this location. ` +
+    `Nearby surroundings: ${trafficSignals.nearbyGasStations} gas stations + ${trafficSignals.nearbyGroceryStores} grocers + ` +
+    `${trafficSignals.nearbyFastFood} restaurants + ${trafficSignals.nearbyShopping} shopping centres (Google Places API). ` +
+    `\n\nFINANCIAL MODEL (404 Excel model, August 2017): ` +
+    `Capture rate ${(fp.assumptions.captureRate * 100).toFixed(1)}% × ${trafficSignals.estimatedDailyTraffic.toLocaleString()} daily vehicles × $${fp.assumptions.avgRevenuePerCar.toFixed(2)} avg revenue/car. ` +
+    `Labour costs: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live ${wageSource === "world-bank-derived" ? "World Bank" : "ILO"} data (${wagePeriod}): staff $${staffHourly.toFixed(2)}/hr` : `404 Excel baseline: staff $${staffHourly.toFixed(2)}/hr`}. ` +
+    `Year 1 revenue ${fmtUSD(fp.year1Revenue)}, EBITDA ${fmtUSD(fp.year1EBITDA)}, payback ${fp.paybackYears} yrs. ` +
+    (competitorsWithVolume.length > 0
+      ? `\n\nCOMPETITOR VOLUME (Google Maps Popular Times via SerpApi): ` +
+        `${competitorsWithVolume.length} of ${competitors.length} competitors have volume data. ` +
+        `Average 6-month volume: ~${avgCompetitorVolume6mo?.toLocaleString() ?? "N/A"} cars. ` +
+        (topVolumeCompetitor ? `Busiest competitor: "${topVolumeCompetitor.place.name}" at ~${topVolumeCompetitor.estimatedVolume.sixMonthEstimate?.toLocaleString()} cars/6 months. ` : "")
+      : `\n\nCOMPETITOR VOLUME: Not available — SERPAPI_KEY not configured. `) +
+    (flowStatus === "live"
+      ? `\n\nROAD INTELLIGENCE (TomTom APIs — live): ` +
+        `Road class ${roadLabel} (${roadClass}) · Traffic ${congestion} · ` +
+        `Incident risk ${incidentRisk} · ${closures} active closure(s) within 2km. `
+      : `\n\nROAD INTELLIGENCE: TomTom data unavailable. `) +
     `\n\nVERDICT: ${verdict} — ` +
     (verdict === "INVEST"
-      ? `Budget is sufficient and location fundamentals support investment.`
+      ? `Budget sufficient, location fundamentals strong, financials viable.`
       : verdict === "PROCEED WITH CAUTION"
-      ? `Either budget is marginal or location score is below ideal. Proceed with a detailed feasibility study.`
-      : `Budget is insufficient for a viable car wash, or location fundamentals are too weak.`);
+      ? `Budget marginal or location score below ideal. Commission a detailed feasibility study.`
+      : `Budget insufficient or location fundamentals too weak for a viable investment.`);
 
   // ── Recommendation ──────────────────────────────────────────────────────────
   let recommendation: string;
@@ -186,6 +346,15 @@ export async function POST(req: NextRequest) {
     // Rules-based engine always runs first
     const decision = rulesDecision(result, budgetUSD, exchangeRate);
 
+    // Extract TomTom variables for use in AI prompts below
+    const _tomtom      = result.tomtom;
+    const flowStatus   = _tomtom?.trafficFlow.status ?? "unavailable";
+    const roadClass    = _tomtom?.trafficFlow.roadClass ?? null;
+    const roadLabel    = _tomtom?.trafficFlow.roadClassLabel ?? null;
+    const congestion   = _tomtom?.trafficFlow.congestionLevel ?? null;
+    const incidentRisk = _tomtom?.incidents.accessRiskLevel ?? null;
+    const closures     = _tomtom?.incidents.closureCount ?? 0;
+
     // ── AI enhancement (Claude or OpenAI) ──────────────────────────────────
     // When ANTHROPIC_API_KEY or OPENAI_API_KEY is set, Claude/GPT enriches
     // the decision with real-world market insight on top of the rules output.
@@ -223,14 +392,23 @@ Country: ${result.countryCode}
 Verdict: ${decision.verdict}
 Budget: ${fmtUSD(budgetUSD)} USD | Minimum required: ${fmtUSD(decision.minimumRequiredUSD)}
 Score: ${result.score.overall}/100 (${result.score.verdict})
-Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day
-Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores}
-Nearby shopping centers: ${result.trafficSignals.nearbyShopping}
-Nearby gas stations: ${result.trafficSignals.nearbyGasStations}
-Competitors within 5 miles: ${result.competitors.length} | Avg rating: ${result.reviewInsights.avgCompetitorRating.toFixed(1)}
+Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [source: Google Maps review-volume formula]
+Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} [source: Google Places API]
+Nearby shopping centers: ${result.trafficSignals.nearbyShopping} [source: Google Places API]
+Nearby gas stations: ${result.trafficSignals.nearbyGasStations} [source: Google Places API]
+Competitors within 5 miles: ${result.competitors.length} | Avg rating: ${result.reviewInsights.avgCompetitorRating.toFixed(1)} [source: Google Places API]
 Market saturation: ${result.reviewInsights.marketSaturationLevel}
-Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)}
+Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)} [source: 404 Financial Model]
 Payback: ${result.financialProjection.paybackYears} years | IRR: ~${result.financialProjection.irr5Year}%
+LABOUR RATES [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "404 Excel baseline (2017) — live data unavailable"}]: Staff $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)}/hr | Manager $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)}/hr | US baseline: $${US_BASELINE_STAFF_HOURLY}/hr staff
+COMPETITOR VOLUME [source: Google Maps Popular Times via SerpApi]: ${
+  decision.keyFactors.find(f => f.includes("Competitor volume")) ?? "No volume data available"
+}
+ROAD INTELLIGENCE [source: TomTom APIs — live data]: ${
+  flowStatus === "live"
+    ? `Road class: ${roadLabel} (${roadClass}) | Traffic: ${congestion} | Incident risk: ${incidentRisk} | Active closures: ${closures} | 5-min drive-time isochrone: ${result.tomtom?.isochrones.fiveMin.status === "live" ? result.tomtom.isochrones.fiveMin.boundaryPoints + " boundary points" : "unavailable"} | 10-min isochrone: ${result.tomtom?.isochrones.tenMin.status === "live" ? result.tomtom.isochrones.tenMin.boundaryPoints + " boundary points" : "unavailable"}`
+    : "TomTom data unavailable"
+}
 Existing red flags: ${decision.redFlags.join("; ")}
 Existing green flags: ${decision.greenFlags.join("; ")}`;
 
@@ -289,24 +467,40 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Opportunity: ${result.score.components.opportunity}/100\n` +
                 `- Market Activity: ${result.score.components.market}/100\n` +
                 `- Financial Viability: ${result.score.components.financial}/100\n\n` +
-                `MARKET DATA:\n` +
+                `MARKET DATA [source: Google Places API — live data]:\n` +
                 `- Competitors within 5 miles: ${result.competitors.length}\n` +
                 `- Average competitor rating: ${result.reviewInsights.avgCompetitorRating}/5.0\n` +
                 `- Market saturation: ${result.reviewInsights.marketSaturationLevel}\n` +
-                `- Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day\n\n` +
-                `SITE SURROUNDINGS (for 5-Criteria evaluation):\n` +
-                `- Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} (ideal: ≥2 for weekly-needs anchor)\n` +
+                `- Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [Google Maps review-volume formula]\n\n` +
+                `SITE SURROUNDINGS [source: Google Places API]:\n` +
+                `- Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} (ideal: ≥2)\n` +
                 `- Nearby shopping centers/big-box: ${result.trafficSignals.nearbyShopping} (ideal: ≥1)\n` +
                 `- Nearby gas stations: ${result.trafficSignals.nearbyGasStations} (arterial road indicator)\n` +
                 `- Nearby fast food / restaurants: ${result.trafficSignals.nearbyFastFood}\n\n` +
-                `FINANCIAL PROJECTIONS:\n` +
+                `FINANCIAL PROJECTIONS [source: 404 Financial Model, August 2017]:\n` +
                 `- Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)}\n` +
                 `- Year 1 EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)}\n` +
                 `- Year 5 Revenue: ${fmtUSD(result.financialProjection.year5Revenue)}\n` +
                 `- Payback period: ${result.financialProjection.paybackYears} years\n` +
                 `- 5-Year IRR: ~${result.financialProjection.irr5Year}%\n\n` +
+                `LABOUR COSTS [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "404 Excel baseline 2017 — live data unavailable"}]:\n` +
+                `- Staff hourly: $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)} USD (US baseline: $${US_BASELINE_STAFF_HOURLY})\n` +
+                `- Manager hourly: $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)} USD (US baseline: $${US_BASELINE_MANAGER_HOURLY})\n` +
+                `- Note: labour costs are ALREADY factored into the EBITDA above\n\n` +
+                `COMPETITOR VOLUME [source: Google Maps Popular Times via SerpApi]:\n` +
+                `${decision.keyFactors.find(f => f.includes("Competitor volume")) ?? "- No competitor volume data available"}\n\n` +
+                `ROAD INTELLIGENCE [source: TomTom APIs — live data]:\n` +
+                (flowStatus === "live"
+                  ? `- Road class: ${roadLabel} (${roadClass})\n` +
+                    `- Traffic congestion: ${congestion}\n` +
+                    `- Incident access risk: ${incidentRisk}\n` +
+                    `- Active road closures within 2km: ${closures}\n` +
+                    `- 5-min drive-time isochrone: ${result.tomtom?.isochrones.fiveMin.status === "live" ? "computed (" + result.tomtom.isochrones.fiveMin.boundaryPoints + " boundary points)" : "unavailable"}\n` +
+                    `- 10-min drive-time isochrone: ${result.tomtom?.isochrones.tenMin.status === "live" ? "computed (" + result.tomtom.isochrones.tenMin.boundaryPoints + " boundary points)" : "unavailable"}\n` +
+                    `- 15-min drive-time isochrone: ${result.tomtom?.isochrones.fifteenMin.status === "live" ? "computed (" + result.tomtom.isochrones.fifteenMin.boundaryPoints + " boundary points)" : "unavailable"}\n\n`
+                  : "- TomTom data unavailable\n\n") +
                 `INITIAL VERDICT: ${decision.verdict}\n\n` +
-                `Evaluate the site against all 5 criteria and include relevant criteria findings in your redFlags and greenFlags. Return this exact JSON structure:\n` +
+                `Evaluate the site against all 5 criteria and include relevant criteria findings in your redFlags and greenFlags. Include road intelligence in Criterion 4 (VISIBILITY & ACCESS). Return this exact JSON structure:\n` +
                 `{\n` +
                 `  "decisionSummary": "2-3 sentences specific to this location, budget, and 5-criteria assessment",\n` +
                 `  "recommendation": "One concrete actionable next step for the investor",\n` +

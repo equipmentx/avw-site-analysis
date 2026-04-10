@@ -59,7 +59,7 @@ function Skeleton() {
         <div className="h-32 bg-slate-700/40 rounded-xl" />
         <div className="h-32 bg-slate-700/40 rounded-xl" />
       </div>
-      <div className="text-slate-500 text-xs text-center">Analyzing your investment opportunity...</div>
+      <div className="text-slate-300 text-xs text-center">Analyzing your investment opportunity...</div>
     </div>
   );
 }
@@ -95,7 +95,7 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
       <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-5 text-center">
         <div className="text-2xl mb-2">📊</div>
         <p className="text-yellow-300/80 text-sm font-semibold">Investment Decision Unavailable</p>
-        <p className="text-slate-500 text-xs mt-1">Review the sections above for a complete picture of this location.</p>
+        <p className="text-slate-300 text-xs mt-1">Review the sections above for a complete picture of this location.</p>
       </div>
     );
   }
@@ -130,24 +130,24 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
         {/* Visual budget comparison */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
-            <div className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Your Budget</div>
+            <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Your Budget</div>
             <div className={`text-lg font-black ${decision.budgetFeasible ? "text-emerald-300" : "text-red-300"}`}>
               {fmt(decision.budgetUSD)}
             </div>
-            <div className="text-slate-500 text-[10px] mt-0.5">What you have to invest</div>
+            <div className="text-slate-300 text-[10px] mt-0.5">What you have to invest</div>
           </div>
           <div className="bg-slate-800/60 rounded-xl p-3 border border-yellow-500/20">
-            <div className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Minimum Viable Investment</div>
+            <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Minimum Viable Investment</div>
             <div className="text-lg font-black text-yellow-300">
               {fmt(decision.minimumRequiredUSD)}
             </div>
-            <div className="text-slate-500 text-[10px] mt-0.5">Hard floor to build a viable tunnel</div>
+            <div className="text-slate-300 text-[10px] mt-0.5">Hard floor to build a viable tunnel</div>
           </div>
         </div>
 
         {/* Progress bar: budget vs minimum */}
         <div>
-          <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+          <div className="flex justify-between text-[10px] text-slate-300 mb-1">
             <span>Budget coverage of minimum</span>
             <span className={decision.budgetFeasible ? "text-emerald-400" : "text-red-400"}>
               {Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100)}%
@@ -159,7 +159,7 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
               style={{ width: `${Math.min(100, Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100))}%` }}
             />
           </div>
-          <p className="text-slate-500 text-[10px] mt-1">
+          <p className="text-slate-300 text-[10px] mt-1">
             The Minimum Viable Investment is the absolute floor — below this, no car wash can be built to a profitable standard. Your Suggested Investment Range (in the section above) is what a properly-built site actually costs.
           </p>
         </div>
@@ -227,7 +227,7 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
       <div className="bg-slate-800/30 border border-slate-700/20 rounded-2xl overflow-hidden">
         <button
           onClick={() => setShowCalc((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-700/20 transition-colors text-sm font-semibold"
+          className="w-full flex items-center justify-between px-4 py-3 text-slate-200 hover:text-white hover:bg-slate-700/20 transition-colors text-sm font-semibold"
         >
           <span className="flex items-center gap-2">
             <span>🧮</span> How This Decision Was Calculated
@@ -236,7 +236,7 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
         </button>
         {showCalc && (
           <div className="px-4 pb-4 border-t border-slate-700/20">
-            <p className="text-slate-400 text-xs leading-relaxed whitespace-pre-line mt-3">
+            <p className="text-slate-200 text-xs leading-relaxed whitespace-pre-line mt-3">
               {decision.calculationBreakdown}
             </p>
           </div>
@@ -251,7 +251,7 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
-      <p className="text-slate-600 text-xs text-center">
+      <p className="text-slate-400 text-xs text-center">
         All projections are estimates based on industry benchmarks and live location data.
         Verify with qualified professionals before making investment decisions.
       </p>
