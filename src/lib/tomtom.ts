@@ -25,25 +25,51 @@ import type {
   TomTomSiteData,
   TomTomVehicleCount,
 } from "./types";
+import https from "https";
 
 const TOMTOM_BASE    = "https://api.tomtom.com";
-const TOMTOM_TIMEOUT = 10_000;
+const TOMTOM_TIMEOUT = 15_000;
 
-async function ttFetch(url: string): Promise<any | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TOMTOM_TIMEOUT);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) {
-      console.warn(`TomTom ${res.status}: ${url}`);
-      return null;
-    }
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+/**
+ * Uses Node's native https module instead of fetch.
+ * fetch/undici has SSL connection issues on Windows for certain hosts.
+ */
+function ttFetch(url: string): Promise<any | null> {
+  return new Promise((resolve) => {
+    const safeUrl = url.replace(/key=[^&]+/, "key=***");
+    const timer = setTimeout(() => {
+      console.warn(`[AVW] TomTom timeout (${TOMTOM_TIMEOUT}ms) → ${safeUrl}`);
+      resolve(null);
+    }, TOMTOM_TIMEOUT);
+
+    const req = https.get(url, { headers: { "User-Agent": "AVW-Site-Intel/1.0" } }, (res) => {
+      let raw = "";
+      res.on("data", (chunk) => { raw += chunk; });
+      res.on("end", () => {
+        clearTimeout(timer);
+        if (res.statusCode && res.statusCode >= 400) {
+          console.warn(`[AVW] TomTom HTTP ${res.statusCode} → ${safeUrl}`);
+          console.warn(`[AVW] TomTom body:`, raw.slice(0, 300));
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(raw));
+        } catch {
+          console.warn(`[AVW] TomTom non-JSON response → ${safeUrl}`);
+          resolve(null);
+        }
+      });
+    });
+
+    req.on("error", (err) => {
+      clearTimeout(timer);
+      console.warn(`[AVW] TomTom request error → ${safeUrl}:`, err.message);
+      resolve(null);
+    });
+
+    req.end();
+  });
 }
 
 // TomTom Functional Road Class codes → human labels

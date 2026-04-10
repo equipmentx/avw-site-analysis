@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import https from "https";
 import {
   analyzeCompetitor,
   buildReviewInsights,
@@ -20,6 +21,12 @@ const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? "";
 const SERPAPI_KEY    = process.env.SERPAPI_KEY ?? "";
 const BASE_URL = "https://maps.googleapis.com/maps/api";
 
+// ── Startup diagnostics — printed once when the server starts ─────────────────
+console.log("[AVW] API keys loaded:");
+console.log("  GOOGLE_MAPS_API_KEY:", GOOGLE_API_KEY ? `✅ (${GOOGLE_API_KEY.slice(0,8)}...)` : "❌ MISSING");
+console.log("  SERPAPI_KEY:        ", SERPAPI_KEY    ? `✅ (${SERPAPI_KEY.slice(0,8)}...)`    : "❌ MISSING");
+console.log("  TOMTOM_API_KEY:     ", process.env.TOMTOM_API_KEY ? `✅ (${(process.env.TOMTOM_API_KEY).slice(0,8)}...)` : "❌ MISSING");
+
 // ── Google Places helpers ─────────────────────────────────────────────────────
 // Each request gets a 12-second timeout so a slow connection doesn't hang the whole analysis.
 // On network failure the helpers return empty arrays / null — analysis degrades gracefully.
@@ -28,9 +35,16 @@ async function gFetch(url: string): Promise<any> {
   const timer = setTimeout(() => controller.abort(), 12_000);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const domain = new URL(url).hostname;
+      console.warn(`[AVW] ${domain} returned HTTP ${res.status}:`, body.slice(0, 200));
+      return null;
+    }
     return await res.json();
-  } catch {
+  } catch (err: any) {
+    const domain = new URL(url).hostname;
+    console.warn(`[AVW] ${domain} fetch failed:`, err?.message ?? err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -88,29 +102,57 @@ const TUNNEL_CAPACITY   = 100; // cars per hour
 const HOURS_OPEN_START  = 8;   // 8am
 const HOURS_OPEN_END    = 20;  // 8pm
 
+/**
+ * Native https GET — bypasses undici/fetch which has SSL issues on Windows for
+ * certain hosts (serpapi.com, api.tomtom.com). Google endpoints use gFetch (fetch)
+ * which works fine for googleapis.com.
+ */
+function httpsGet(url: string, timeoutMs = 20_000): Promise<any | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const safeUrl = url.replace(/api_key=[^&]+/, "api_key=***").replace(/key=[^&]+/, "key=***");
+      console.warn(`[AVW] httpsGet timeout → ${safeUrl}`);
+      resolve(null);
+    }, timeoutMs);
+
+    const req = https.get(url, { headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } }, (res) => {
+      let raw = "";
+      res.on("data", (chunk) => { raw += chunk; });
+      res.on("end", () => {
+        clearTimeout(timer);
+        if (res.statusCode && res.statusCode >= 400) {
+          const safeUrl = url.replace(/api_key=[^&]+/, "api_key=***").replace(/key=[^&]+/, "key=***");
+          console.warn(`[AVW] httpsGet HTTP ${res.statusCode} → ${safeUrl}:`, raw.slice(0, 200));
+          resolve(null);
+          return;
+        }
+        try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+      });
+    });
+    req.on("error", (err) => { clearTimeout(timer); console.warn("[AVW] httpsGet error:", err.message); resolve(null); });
+    req.end();
+  });
+}
+
 async function fetchPopularTimes(placeId: string, placeName: string, lat: number, lng: number): Promise<any[] | null> {
   if (!SERPAPI_KEY) return null;
 
-  try {
-    // SerpApi Google Maps — place details by name + coordinates to get popular_times
-    const url = new URL("https://serpapi.com/search.json");
-    url.searchParams.set("engine",  "google_maps");
-    url.searchParams.set("q",       placeName);
-    url.searchParams.set("ll",      `@${lat},${lng},15z`);
-    url.searchParams.set("type",    "place");
-    url.searchParams.set("api_key", SERPAPI_KEY);
+  // SerpApi Google Maps — place details by name + coordinates to get popular_times
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine",  "google_maps");
+  url.searchParams.set("q",       placeName);
+  url.searchParams.set("ll",      `@${lat},${lng},15z`);
+  url.searchParams.set("type",    "place");
+  url.searchParams.set("api_key", SERPAPI_KEY);
 
-    const data = await gFetch(url.toString());
+  // Use native https — serpapi.com times out with undici/fetch on Windows
+  const data = await httpsGet(url.toString());
 
-    // SerpApi returns popular_times under place_results or local_results[0]
-    return (
-      data?.place_results?.popular_times ??
-      data?.local_results?.[0]?.popular_times ??
-      null
-    );
-  } catch {
-    return null;
-  }
+  return (
+    data?.place_results?.popular_times ??
+    data?.local_results?.[0]?.popular_times ??
+    null
+  );
 }
 
 import type { EstimatedVolume } from "@/lib/types";

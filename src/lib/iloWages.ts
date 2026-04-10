@@ -18,6 +18,29 @@
  *      Anchored to published World Bank methodology for labor income share.
  */
 
+import https from "https";
+
+/**
+ * Native https GET — bypasses undici/fetch SSL issues on Windows.
+ * Returns parsed JSON or null on any error/timeout.
+ */
+function nativeGet(url: string, timeoutMs = 15_000): Promise<any | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { console.warn("[AVW] iloWages timeout:", url.slice(0, 80)); resolve(null); }, timeoutMs);
+    const req = https.get(url, { headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } }, (res) => {
+      let raw = "";
+      res.on("data", (c) => { raw += c; });
+      res.on("end", () => {
+        clearTimeout(timer);
+        if (res.statusCode && res.statusCode >= 400) { resolve(null); return; }
+        try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+      });
+    });
+    req.on("error", (err) => { clearTimeout(timer); console.warn("[AVW] iloWages error:", err.message); resolve(null); });
+    req.end();
+  });
+}
+
 export interface WageRates {
   staffMonthlyUSD:   number;
   managerMonthlyUSD: number;
@@ -52,18 +75,9 @@ const ISO2_TO_ILO: Record<string, string> = {
 const cache = new Map<string, { data: WageRates; fetchedAt: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1_000; // 24 hours
 
+// iloFetch → delegates to nativeGet (bypasses undici/fetch on Windows)
 async function iloFetch(url: string): Promise<any | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  return nativeGet(url);
 }
 
 // ── Source 1: ILO mean earnings by occupation (service & sales workers, Group 5) ─
@@ -134,30 +148,19 @@ async function fetchWorldBankDerived(isoCode: string): Promise<{ value: number; 
     `https://api.worldbank.org/v2/country/${isoCode}/indicator/NY.GNP.PCAP.CD` +
     `?format=json&mrv=1&per_page=1`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    const json = await res.json();
+  const json = await nativeGet(url);
 
-    // World Bank returns [metadata, [datapoints]]
-    const data = json?.[1];
-    if (!Array.isArray(data) || data.length === 0) return null;
-    const entry = data[0];
-    const gniPerCapita = entry?.value;
-    if (typeof gniPerCapita !== "number" || gniPerCapita <= 0) return null;
+  // World Bank returns [metadata, [datapoints]]
+  const data = json?.[1];
+  if (!Array.isArray(data) || data.length === 0) return null;
+  const entry = data[0];
+  const gniPerCapita = entry?.value;
+  if (typeof gniPerCapita !== "number" || gniPerCapita <= 0) return null;
 
-    const period = entry?.date ?? "Latest";
-    // Monthly service worker wage = GNI/capita / 12 × 0.75
-    const monthlyWage = (gniPerCapita / 12) * 0.75;
-    return { value: Math.round(monthlyWage), period };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-    clearTimeout(timer);
-  }
+  const period = entry?.date ?? "Latest";
+  // Monthly service worker wage = GNI/capita / 12 × 0.75
+  const monthlyWage = (gniPerCapita / 12) * 0.75;
+  return { value: Math.round(monthlyWage), period };
 }
 
 /**
