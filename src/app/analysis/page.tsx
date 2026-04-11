@@ -623,6 +623,7 @@ function AnalysisPageInner() {
             budget={budget ? parseFloat(budget) : 0}
             currency={currency}
             rate={rate}
+            configId={configId ?? undefined}
           />
         </Section>
 

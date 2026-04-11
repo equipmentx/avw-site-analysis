@@ -8,6 +8,7 @@ interface Props {
   budget: number;       // in user's selected currency
   currency: CurrencyOption;
   rate: number;         // how many currency units = 1 USD
+  configId?: string;    // selected car wash format (e.g. "express-130")
 }
 
 function fmt(usd: number): string {
@@ -64,7 +65,7 @@ function Skeleton() {
   );
 }
 
-export default function FinalDecisionPanel({ result, budget, currency, rate }: Props) {
+export default function FinalDecisionPanel({ result, budget, currency, rate, configId }: Props) {
   const [decision, setDecision] = useState<AiDecision | null>(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState("");
@@ -77,7 +78,7 @@ export default function FinalDecisionPanel({ result, budget, currency, rate }: P
     fetch("/api/decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ result, budget, exchangeRate }),
+      body: JSON.stringify({ result, budget, exchangeRate, configId }),
     })
       .then((r) => r.json())
       .then((d) => {

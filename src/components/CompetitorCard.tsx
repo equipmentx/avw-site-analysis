@@ -170,48 +170,6 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
           </div>
         </div>
 
-        {/* Estimated 6-month volume */}
-        <div className={`rounded-xl p-3 border ${
-          competitor.estimatedVolume.sixMonthEstimate !== null
-            ? "bg-blue-500/5 border-blue-500/20"
-            : "bg-slate-700/20 border-slate-700/40"
-        }`}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-slate-200 text-xs font-semibold uppercase tracking-wider">
-              Est. Cars Processed (6 months)
-            </span>
-            {competitor.estimatedVolume.sixMonthEstimate !== null && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                competitor.estimatedVolume.confidence === "high"   ? "bg-emerald-500/20 text-emerald-300" :
-                competitor.estimatedVolume.confidence === "medium" ? "bg-yellow-500/20 text-yellow-300"  :
-                                                                      "bg-orange-500/20 text-orange-300"
-              }`}>
-                {competitor.estimatedVolume.confidence.toUpperCase()} CONFIDENCE
-              </span>
-            )}
-          </div>
-
-          {competitor.estimatedVolume.sixMonthEstimate !== null ? (
-            <div className="text-2xl font-black text-blue-300">
-              ~{competitor.estimatedVolume.sixMonthEstimate.toLocaleString()}
-              <span className="text-slate-300 text-xs font-normal ml-1">cars</span>
-            </div>
-          ) : (
-            <div className="text-slate-300 text-sm font-medium">Data unavailable</div>
-          )}
-
-          {/* Always show the method — full transparency, no black boxes */}
-          <details className="mt-1.5 group">
-            <summary className="list-none text-[10px] text-slate-300 hover:text-white cursor-pointer transition-colors">
-              <span className="group-open:hidden">▶ How this is calculated</span>
-              <span className="hidden group-open:inline">▼ How this is calculated</span>
-            </summary>
-            <p className="text-slate-200 text-[10px] leading-relaxed mt-1">
-              {competitor.estimatedVolume.method}
-            </p>
-          </details>
-        </div>
-
         {/* Complaints with images */}
         {sentiment.topComplaints.length > 0 && (
           <div className="border-t border-slate-700/40 pt-3">
