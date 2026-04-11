@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  ChevronDown, Users, Clock, DollarSign, Maximize2,
+  ChevronDown, Users, Clock, Maximize2,
   RotateCcw, Eye, Grid3x3, ArrowRight, CheckCircle,
   Layers, Zap, Info,
 } from "lucide-react";
@@ -148,11 +148,6 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
     });
   };
 
-  const fmtUSD = (n: number) => {
-    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-    return `$${Math.round(n / 1000)}K`;
-  };
-
   const handleSelect = () => {
     setConfirmed(true);
     onSelect(activeId);
@@ -296,8 +291,8 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
           <p className="text-slate-300 text-sm mt-2 leading-relaxed">{config.description}</p>
         </div>
 
-        {/* Spec grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {/* Spec grid — physical/operational specs only (no financial claims) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           <SpecPill
             icon={<Clock className="w-3.5 h-3.5" />}
             label="Throughput"
@@ -313,12 +308,13 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
             label="Staff"
             value={`${config.staffRequired.min}–${config.staffRequired.max} people`}
           />
-          <SpecPill
-            icon={<DollarSign className="w-3.5 h-3.5" />}
-            label="Investment"
-            value={`${fmtUSD(config.investmentRangeUSD.min)}–${fmtUSD(config.investmentRangeUSD.max)}`}
-          />
         </div>
+
+        {/* Source note for specs */}
+        <p className="text-slate-500 text-[10px] leading-relaxed">
+          Throughput, lot, and staffing specs are equipment manufacturer benchmarks (Tommy Car Wash Systems, PDQ, Sonny&apos;s Enterprises, ICA).
+          Investment costs and revenue projections are calculated live in the analysis using your location, budget, and country market data — not shown here.
+        </p>
 
         {/* Features */}
         <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl p-4">
@@ -348,12 +344,15 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
           </div>
         </div>
 
-        {/* Revenue model */}
+        {/* Revenue model note */}
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl px-4 py-3 flex items-start gap-2.5">
           <Zap className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
           <div>
-            <div className="text-blue-300 text-xs font-bold mb-0.5">Revenue Model</div>
-            <p className="text-slate-300 text-xs leading-relaxed">{config.revenueModel}</p>
+            <div className="text-blue-300 text-xs font-bold mb-0.5">Revenue & Investment</div>
+            <p className="text-slate-300 text-xs leading-relaxed">
+              Financial projections — investment cost, revenue, EBITDA, and payback — are calculated live in the analysis step
+              using your location, budget, local wage data (ILO ILOSTAT), and country cost index. No estimates are shown here.
+            </p>
             {config.membershipFriendly && (
               <span className="inline-flex items-center gap-1 mt-1.5 bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">
                 <CheckCircle className="w-2.5 h-2.5" />
