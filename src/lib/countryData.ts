@@ -8,10 +8,10 @@ export interface CountryEntry {
   minViableUSD: number; // minimum budget to build a real car wash tunnel
 }
 
-// US Excel model baseline: $3,663,000 (404 Financial Model, 2017)
+// US Excel model baseline: $3,663,000 (Express Car Wash Investment Pro Forma, 2017)
 // minViable = baseline × multiplier × 0.41 (minimum viable fraction for a working tunnel)
 export const COUNTRY_DATA: Record<string, CountryEntry> = {
-  US: { multiplier: 1.00, minViableUSD: 1_500_000, name: "United States",    context: "US market — benchmark pricing with high land and labor costs. Equipment imported from US suppliers (Belanger, PDQ, Sonny's)." },
+  US: { multiplier: 1.00, minViableUSD: 1_500_000, name: "United States",    context: "US market — benchmark pricing with high land and labor costs. Equipment from US suppliers (Belanger, PDQ, Washworld)." },
   GB: { multiplier: 0.88, minViableUSD: 1_320_000, name: "United Kingdom",   context: "UK market — slightly lower land costs outside London, comparable equipment costs. Factor in VAT." },
   AU: { multiplier: 0.92, minViableUSD: 1_380_000, name: "Australia",        context: "Australian market — high labor costs but competitive equipment sourcing. High car ownership per capita." },
   CA: { multiplier: 0.93, minViableUSD: 1_395_000, name: "Canada",           context: "Canadian market — similar to US with regional cost variations. Cold weather requires heated bays." },

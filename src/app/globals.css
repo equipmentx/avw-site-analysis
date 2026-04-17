@@ -5,8 +5,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 :root {
-  --foreground: #f8fafc;
-  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --background: #1a2535;
 }
 
 * {
@@ -27,13 +27,13 @@ body {
 
 /* ─── Custom scrollbar ──────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #0f172a; }
-::-webkit-scrollbar-thumb { background: #1e3a8a; border-radius: 3px; }
+::-webkit-scrollbar-track { background: #1a2535; }
+::-webkit-scrollbar-thumb { background: #2d4a7a; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
 
 /* ─── Google Places Autocomplete dropdown ──────────────── */
 .pac-container {
-  background: #1e293b !important;
+  background: #243347 !important;
   border: 1px solid #334155 !important;
   border-radius: 12px !important;
   margin-top: 4px !important;
@@ -97,14 +97,14 @@ body {
 
 /* ─── Shimmer loading state ────────────────────────────── */
 .shimmer {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background: linear-gradient(90deg, #243347 25%, #2e4260 50%, #243347 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
-/* ─── Hero background (legacy fallback) ────────────────── */
+/* ─── Hero background ───────────────────────────────────── */
 .hero-bg {
-  background: #0f172a;
+  background: #1a2535;
 }
 
 /* ─── Verdict glow ─────────────────────────────────────── */

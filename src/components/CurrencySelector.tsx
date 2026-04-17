@@ -75,7 +75,7 @@ export default function CurrencySelector({ selected, onChange, compact = false }
           </div>
 
           <div className="p-2 border-t border-slate-700/50 text-center">
-            <span className="text-slate-500 text-xs">Rates update hourly via ECB</span>
+            <span className="text-slate-500 text-xs">Rates: US Federal Reserve FRED · updated hourly</span>
           </div>
         </div>
       )}

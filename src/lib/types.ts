@@ -203,6 +203,26 @@ export interface TomTomIncidentsData {
   source: string;
 }
 
+export interface TomTomSpeedProfile {
+  // Weekday hourly average speeds — index 0 = midnight, 23 = 11pm
+  weekdayHourlySpeedsKmh: number[];
+  weekendHourlySpeedsKmh: number[];
+  // Peak congestion: hours where speed drops most vs free-flow (rush hours)
+  weekdayPeakHours:  number[];   // e.g. [7, 8, 17, 18]
+  weekendPeakHours:  number[];
+  // Summary stats
+  avgWeekdaySpeedKmh: number;
+  avgWeekendSpeedKmh: number;
+  freeFlowSpeedKmh:   number;
+  // Pattern classification for car wash context
+  // COMMUTER = morning/evening rush → captive commuter market
+  // SHOPPING = midday/weekend peak → retail proximity signal
+  // FLAT     = consistent all day → steady but not explosive demand
+  trafficPattern: "COMMUTER" | "SHOPPING" | "FLAT" | "UNKNOWN";
+  status: "live" | "unavailable";
+  source: string;
+}
+
 export interface TomTomSiteData {
   trafficFlow:  TomTomTrafficFlow;
   isochrones: {
@@ -210,7 +230,8 @@ export interface TomTomSiteData {
     tenMin:     TomTomIsochrone;
     fifteenMin: TomTomIsochrone;
   };
-  incidents: TomTomIncidentsData;
+  incidents:    TomTomIncidentsData;
+  speedProfile: TomTomSpeedProfile;
   fetchedAt: string;
 }
 
@@ -256,9 +277,98 @@ export interface RegridParcelData {
   zoningDescription: string;
   landUse:         string;
   polygon:         Array<{ lat: number; lng: number }>;
-  status:          "live" | "unavailable";
+  // ATTOM extended fields (present when ATTOM API is the source)
+  attomId?:              number | null;
+  // AVM
+  avmEstimateUSD?:       number | null;
+  avmHighUSD?:           number | null;
+  avmLowUSD?:            number | null;
+  avmDate?:              string | null;
+  avmFSD?:               number | null;
+  // Building
+  yearBuilt?:            number | null;
+  yearBuiltEffective?:   number | null;
+  buildingSqFt?:         number | null;
+  buildingStories?:      number | null;
+  existingBuildingCount?: number | null;
+  existingParkingSpaces?: number | null;
+  buildingCondition?:    string | null;
+  buildingQuality?:      string | null;
+  // Utilities — car wash critical
+  sewerType?:            string | null;
+  waterType?:            string | null;
+  // Site
+  cornerLot?:            boolean | null;
+  siteInfluence?:        string | null;
+  legalDesc?:            string | null;
+  // Ownership context
+  absenteeOwner?:        boolean | null;
+  corporateOwner?:       boolean | null;
+  owner2?:               string | null;
+  ownerCorporation?:     string | null;
+  // Tax
+  annualTaxUSD?:         number | null;
+  taxYear?:              number | null;
+  taxExemption?:         string | null;
+  // Sale context
+  saleTransactionType?:  string | null;
+  saleReasonCode?:       string | null;
+  // Sale history
+  saleHistory?:          Array<{
+    price: number | null; date: string | null; recordDate: string | null;
+    transType: string | null; buyerName: string | null; sellerName: string | null;
+    pricePerSqFt: number | null;
+  }>;
+  // Due diligence
+  activeLienCount?:      number | null;
+  hasForeclosure?:       boolean | null;
+  hasNOD?:               boolean | null;
+  lienTypes?:            string[];
+  openMortgageAmount?:   number | null;
+  status:                "live" | "unavailable";
   source:          string;
   fetchedAt:       string;
+}
+
+// ── Census ACS types (re-exported from lib/census.ts for client components) ───
+export interface CensusBenchmark {
+  value: number;
+  target: number;
+  met: boolean;
+  label: string;
+}
+
+export interface CensusRingData {
+  label: string;
+  areaDescription: string;
+  population: number;
+  households: number;
+  avgHouseholdSize: number;
+  laborForceParticipation: number;
+  unemploymentRate: number;
+  hhIncomeOver35kPct: number;
+  renterPct: number;
+  totalVehiclesEstimate: number;
+  vehiclesPerHousehold: number;
+  noVehiclePct: number;
+  benchmarks: {
+    hhSize:      CensusBenchmark;
+    workingPop:  CensusBenchmark;
+    hhIncome35k: CensusBenchmark;
+  };
+  source: string;
+  fetchedAt: string;
+}
+
+export interface CensusData {
+  tract:      CensusRingData;
+  county:     CensusRingData;
+  stateFips:  string;
+  countyFips: string;
+  tractFips:  string;
+  countyName: string;
+  status:     "live" | "unavailable";
+  fetchedAt:  string;
 }
 
 export interface SiteAnalysisResult {
@@ -278,16 +388,30 @@ export interface SiteAnalysisResult {
   budgetUSD?: number;
   tomtom?: TomTomSiteData;
   parcel?: RegridParcelData;
+  osmBuilding?: {
+    polygon:       Array<{ lat: number; lng: number }>;
+    footprintSqFt: number | null;
+    footprintSqM:  number | null;
+    osmWayId:      number | null;
+    buildingType:  string | null;
+    status:        "live" | "unavailable";
+    source:        string;
+    fetchedAt:     string;
+  };
+  census?: CensusData;
   // Data source registry — every major data point has a disclosed source
   dataSources: {
-    competitors:        string;  // e.g. "Google Places API"
-    traffic:            string;  // e.g. "Google Maps review-volume formula"
-    financialModel:     string;  // e.g. "404 Financial Model (2017)"
-    wageData:           string;  // e.g. "ILO ILOSTAT 2023" or "Fallback estimate"
-    investmentRange:    string;  // e.g. "404 model × France cost index"
-    exchangeRates:      string;  // e.g. "European Central Bank via frankfurter.app"
-    competitorVolume:   string;  // e.g. "Google Maps Popular Times via SerpApi"
-    tomtomTraffic:      string;  // e.g. "TomTom Traffic Flow API" or "not configured"
+    competitors:        string;
+    traffic:            string;
+    financialModel:     string;
+    wageData:           string;
+    investmentRange:    string;
+    parcelData?:        string;
+    buildingFootprint?: string;
+    exchangeRates:      string;
+    competitorVolume:   string;
+    tomtomTraffic:      string;
+    demographics:       string;
   };
 }
 

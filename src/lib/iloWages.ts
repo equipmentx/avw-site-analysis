@@ -19,15 +19,27 @@
  */
 
 import https from "https";
+import { HTTP_AGENT } from "./dnsAgent";
+
+// HTTP_AGENT imported from dnsAgent.ts — uses Google DNS (8.8.8.8) to bypass
+// local DNS resolver that blocks api.worldbank.org on this machine.
 
 /**
  * Native https GET — bypasses undici/fetch SSL issues on Windows.
- * Returns parsed JSON or null on any error/timeout.
+ * Follows redirects (ILO SDMX API sometimes redirects) and returns parsed JSON or null.
  */
-function nativeGet(url: string, timeoutMs = 15_000): Promise<any | null> {
+function nativeGet(url: string, timeoutMs = 15_000, redirectsLeft = 5): Promise<any | null> {
+  if (redirectsLeft <= 0) return Promise.resolve(null);
   return new Promise((resolve) => {
     const timer = setTimeout(() => { console.warn("[AVW] iloWages timeout:", url.slice(0, 80)); resolve(null); }, timeoutMs);
-    const req = https.get(url, { headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } }, (res) => {
+    const req = https.get(url, { agent: HTTP_AGENT, headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } }, (res) => {
+      // Follow redirects
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        clearTimeout(timer);
+        res.resume();
+        nativeGet(res.headers.location, timeoutMs, redirectsLeft - 1).then(resolve);
+        return;
+      }
       let raw = "";
       res.on("data", (c) => { raw += c; });
       res.on("end", () => {

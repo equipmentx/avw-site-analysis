@@ -1,7 +1,7 @@
 // ── Car Wash Configuration Catalogue ─────────────────────────────────────────
 // Sources: Tommy Car Wash Systems, International Carwash Association (ICA),
 // Professional Carwashing & Detailing magazine, PDQ Manufacturing,
-// Sonny's Enterprises, WashWorld, Motor City Wash Works operator benchmarks.
+// Washworld, Motor City Wash Works operator benchmarks.
 
 export type ConfigCategory = "tunnel" | "inbay" | "selfserve" | "combo" | "specialized";
 

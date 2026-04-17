@@ -11,7 +11,7 @@ function fmtUSD(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
-// US baseline hourly rates from 404 Excel model (used to assess wage impact)
+// US baseline hourly rates from Express Car Wash Pro Forma model (used to assess wage impact)
 const US_BASELINE_STAFF_HOURLY   = 16;
 const US_BASELINE_MANAGER_HOURLY = 30;
 
@@ -62,7 +62,7 @@ function rulesDecision(
   const staffDelta    = staffHourly - US_BASELINE_STAFF_HOURLY;   // positive = more expensive
   const staffDeltaPct = (staffDelta / US_BASELINE_STAFF_HOURLY) * 100;
 
-  // ── Regrid parcel intelligence ─────────────────────────────────────────────
+  // ── ATTOM parcel intelligence ──────────────────────────────────────────────
   const parcel          = result.parcel;
   const parcelLive      = parcel?.status === "live";
   const lotSqFt         = parcel?.lotSqFt ?? null;
@@ -118,7 +118,7 @@ function rulesDecision(
   const configLabel = config ? `a ${config.name}` : "a car wash";
   const configFloorNote = config
     ? `(${config.name} investment range: ${fmtUSD(config.investmentRangeUSD.min)}–${fmtUSD(config.investmentRangeUSD.max)} US baseline, scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}%)`
-    : `(based on the 404 Excel model scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of the US benchmark)`;
+    : `(based on the Express Car Wash Pro Forma model scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of the US benchmark)`;
 
   let budgetAnalysis: string;
   if (budgetFeasible) {
@@ -152,7 +152,7 @@ function rulesDecision(
   if (trafficSignals.estimatedDailyTraffic >= 8_000) greenFlags.push(`High daily vehicle count: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing this location (source: TomTom Traffic Flow API — BPR/HCM methodology)`);
   if (score.components.competition >= 60)            greenFlags.push(`Weak competition nearby (score ${score.components.competition}/100) — low market saturation`);
   if (score.components.opportunity >= 65)            greenFlags.push(`Strong opportunity gap: competitors have notable service weaknesses`);
-  if (fp.year1EBITDA > 0)                            greenFlags.push(`Positive Year 1 EBITDA: ${fmtUSD(fp.year1EBITDA)} — model uses ${ ["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live wage data (${wagePeriod})` : "404 Excel baseline wages"} for ${country.name}`);
+  if (fp.year1EBITDA > 0)                            greenFlags.push(`Positive Year 1 EBITDA: ${fmtUSD(fp.year1EBITDA)} — model uses ${ ["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live wage data (${wagePeriod})` : "Pro Forma baseline wages"} for ${country.name}`);
   if (fp.paybackYears <= 5)                          greenFlags.push(`Estimated payback of ${fp.paybackYears} years is within the 4–7 year industry benchmark`);
   if (reviewInsights.premiumOpportunity)             greenFlags.push("Low competitor quality signals room to charge premium pricing");
   if (trafficSignals.nearbyGasStations >= 3)         greenFlags.push(`${trafficSignals.nearbyGasStations} gas stations nearby — strong arterial road traffic indicator (source: Google Places API)`);
@@ -163,7 +163,7 @@ function rulesDecision(
     greenFlags.push(
       `Local wages are ${Math.abs(staffDeltaPct).toFixed(0)}% below the US model baseline ` +
       `(staff: $${staffHourly.toFixed(2)}/hr vs $${US_BASELINE_STAFF_HOURLY}/hr US baseline) — ` +
-      `improves EBITDA vs a US operation. Source: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel baseline"}.`
+      `improves EBITDA vs a US operation. Source: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "Pro Forma baseline"}.`
     );
   }
 
@@ -213,7 +213,7 @@ function rulesDecision(
       `Local wages are ${staffDeltaPct.toFixed(0)}% above the US model baseline ` +
       `(staff: $${staffHourly.toFixed(2)}/hr vs $${US_BASELINE_STAFF_HOURLY}/hr) — ` +
       `labour costs compress EBITDA vs standard projections. ` +
-      `Source: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel baseline"}.`
+      `Source: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "Pro Forma baseline"}.`
     );
   }
 
@@ -221,7 +221,7 @@ function rulesDecision(
   if (wageSource === "excel-baseline" || wageSource === "unavailable") {
     redFlags.push(
       `Labour cost data unavailable from live sources (ILO ILOSTAT and World Bank both returned no data for ${country.name}). ` +
-      `404 Excel 2017 US baseline rates used. Verify local wage rates with an HR consultant before committing.`
+      `Pro Forma 2017 US baseline rates used. Verify local wage rates with an HR consultant before committing.`
     );
   } else if (wageSource === "world-bank-derived") {
     redFlags.push(
@@ -256,41 +256,41 @@ function rulesDecision(
     );
   }
 
-  // Regrid parcel green flags
+  // ATTOM parcel green flags
   if (parcelLive && lotSqFt !== null && lotSqFt >= EXPRESS_MIN_SQFT) {
     greenFlags.push(
       `Parcel is ${lotSqFt.toLocaleString()} sqft (${lotAcres?.toFixed(2) ?? "?"} acres) — ` +
-      `large enough for a 130ft Express Tunnel layout (min 30,625 sqft). Source: Regrid parcel records.`
+      `large enough for a 130ft Express Tunnel layout (min 30,625 sqft). Source: ATTOM county assessor records.`
     );
   }
   if (parcelLive && parcelZoning && /commercial|retail|C[0-9]|B[0-9]|GC|HC|SC/i.test(parcelZoning)) {
     greenFlags.push(
       `Zoning: ${parcelZoning}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""} — ` +
-      `commercial zoning supports car wash use without special variance. Source: Regrid.`
+      `commercial zoning supports car wash use without special variance. Source: ATTOM county assessor.`
     );
   }
   if (parcelLive && parcelLastSale !== null) {
     greenFlags.push(
       `Last recorded land sale: ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` (${parcelLastDate})` : ""} — ` +
-      `provides a negotiation anchor for site acquisition. Source: Regrid county records.`
+      `provides a negotiation anchor for site acquisition. Source: ATTOM county assessor records.`
     );
   }
 
-  // Regrid parcel red flags
+  // ATTOM parcel red flags
   if (parcelLive && lotSqFt !== null && lotSqFt < INBAY_MIN_SQFT) {
     redFlags.push(
       `Parcel is only ${lotSqFt.toLocaleString()} sqft — too small even for an in-bay automatic ` +
-      `(min 4,800 sqft). This lot cannot support a car wash of any format. Source: Regrid.`
+      `(min 4,800 sqft). This lot cannot support a car wash of any format. Source: ATTOM.`
     );
   } else if (parcelLive && lotSqFt !== null && lotSqFt < EXPRESS_MIN_SQFT && lotSqFt >= SELFSERVE_MIN_SQFT) {
     redFlags.push(
       `Parcel is ${lotSqFt.toLocaleString()} sqft — insufficient for an Express Tunnel (need 30,625 sqft). ` +
-      `Limited to self-serve or in-bay format. Source: Regrid.`
+      `Limited to self-serve or in-bay format. Source: ATTOM.`
     );
   }
   if (parcelLive && parcelZoning && /residential|R[0-9]|industrial|I[0-9]/i.test(parcelZoning) && !/commercial|C[0-9]/i.test(parcelZoning)) {
     redFlags.push(
-      `Zoning: ${parcelZoning} — non-commercial zoning may require a conditional use permit or variance for a car wash. Source: Regrid.`
+      `Zoning: ${parcelZoning} — non-commercial zoning may require a conditional use permit or variance for a car wash. Source: ATTOM.`
     );
   }
 
@@ -313,11 +313,11 @@ function rulesDecision(
   if (config && parcelLive && lotSqFt !== null) {
     if (lotSqFt >= config.minLotSqFt) {
       greenFlags.push(
-        `Lot is ${lotSqFt.toLocaleString()} sqft — fits the ${config.name} layout requirement of ${config.minLotSqFt.toLocaleString()} sqft minimum. Source: Regrid.`
+        `Lot is ${lotSqFt.toLocaleString()} sqft — fits the ${config.name} layout requirement of ${config.minLotSqFt.toLocaleString()} sqft minimum. Source: ATTOM.`
       );
     } else {
       redFlags.push(
-        `Lot is only ${lotSqFt.toLocaleString()} sqft — the ${config.name} needs at least ${config.minLotSqFt.toLocaleString()} sqft (${config.minLotWidthFt}ft wide × ${config.minLotDepthFt}ft deep). This format does not fit this parcel. Source: Regrid.`
+        `Lot is only ${lotSqFt.toLocaleString()} sqft — the ${config.name} needs at least ${config.minLotSqFt.toLocaleString()} sqft (${config.minLotWidthFt}ft wide × ${config.minLotDepthFt}ft deep). This format does not fit this parcel. Source: ATTOM.`
       );
     }
   }
@@ -361,7 +361,7 @@ function rulesDecision(
     `Competitors within ${result.radiusMiles} miles: ${competitors.length} | Market saturation: ${reviewInsights.marketSaturationLevel}`,
     `Daily vehicle count: ${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing site (TomTom Traffic Flow API — BPR/HCM)`,
     `Country cost index: ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of US benchmark`,
-    `Labour rates (${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "404 Excel 2017 baseline"}): staff $${staffHourly.toFixed(2)}/hr · manager $${managerHourly.toFixed(2)}/hr`,
+    `Labour rates (${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "Pro Forma 2017 baseline"}): staff $${staffHourly.toFixed(2)}/hr · manager $${managerHourly.toFixed(2)}/hr`,
     competitorsWithVolume.length > 0
       ? `Competitor volume data (SerpApi): ${competitorsWithVolume.length}/${competitors.length} competitors have Popular Times data · avg ~${avgCompetitorVolume6mo?.toLocaleString() ?? "N/A"} cars/6 months`
       : `Competitor volume: no SerpApi data available (SERPAPI_KEY not configured or data unavailable)`,
@@ -369,11 +369,11 @@ function rulesDecision(
       ? `Road intelligence (TomTom): ${roadLabel ?? "Unknown"} (${roadClass ?? "?"}) · traffic ${congestion ?? "unknown"} · incident risk ${incidentRisk ?? "unknown"} · ${closures} closure(s)`
       : `Road intelligence: TomTom data unavailable (API key not configured)`,
     parcelLive
-      ? `Parcel (Regrid): ${lotSqFt?.toLocaleString() ?? "?"} sqft · ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "dimensions unavailable"} · zoning: ${parcelZoning ?? "unknown"} · owner: ${parcelOwner ?? "unknown"}`
-      : `Parcel data: not available (US-only or Regrid key not configured)`,
+      ? `Parcel (ATTOM): ${lotSqFt?.toLocaleString() ?? "?"} sqft · ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "dimensions unavailable"} · zoning: ${parcelZoning ?? "unknown"} · owner: ${parcelOwner ?? "unknown"}`
+      : `Parcel data: not available (US-only; ATTOM_API_KEY not configured or location outside coverage)`,
     parcelLive && parcelLastSale
-      ? `Land value (Regrid): last sale ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` on ${parcelLastDate}` : ""} · assessed land ${parcelLandVal ? fmtUSD(parcelLandVal) : "n/a"}`
-      : `Land value: no Regrid data`,
+      ? `Land value (ATTOM): last sale ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` on ${parcelLastDate}` : ""} · assessed land ${parcelLandVal ? fmtUSD(parcelLandVal) : "n/a"}`
+      : `Land value: no ATTOM data`,
     `Suggested investment range (BLS CPI-adjusted): ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} · land ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} · construction ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)} · equipment ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)} [${inv.sourceNote}]`,
   ];
 
@@ -389,9 +389,9 @@ function rulesDecision(
     `${trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day passing this location. ` +
     `Nearby surroundings: ${trafficSignals.nearbyGasStations} gas stations + ${trafficSignals.nearbyGroceryStores} grocers + ` +
     `${trafficSignals.nearbyFastFood} restaurants + ${trafficSignals.nearbyShopping} shopping centres (Google Places API). ` +
-    `\n\nFINANCIAL MODEL (404 Excel model, August 2017): ` +
+    `\n\nFINANCIAL MODEL (Express Car Wash Pro Forma model, August 2017): ` +
     `Capture rate ${(fp.assumptions.captureRate * 100).toFixed(1)}% × ${trafficSignals.estimatedDailyTraffic.toLocaleString()} daily vehicles × $${fp.assumptions.avgRevenuePerCar.toFixed(2)} avg revenue/car. ` +
-    `Labour costs: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live ${wageSource === "world-bank-derived" ? "World Bank" : "ILO"} data (${wagePeriod}): staff $${staffHourly.toFixed(2)}/hr` : `404 Excel baseline: staff $${staffHourly.toFixed(2)}/hr`}. ` +
+    `Labour costs: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live ${wageSource === "world-bank-derived" ? "World Bank" : "ILO"} data (${wagePeriod}): staff $${staffHourly.toFixed(2)}/hr` : `Pro Forma baseline: staff $${staffHourly.toFixed(2)}/hr`}. ` +
     `Year 1 revenue ${fmtUSD(fp.year1Revenue)}, EBITDA ${fmtUSD(fp.year1EBITDA)}, payback ${fp.paybackYears} yrs. ` +
     (competitorsWithVolume.length > 0
       ? `\n\nCOMPETITOR VOLUME (Google Maps Popular Times via SerpApi): ` +
@@ -405,7 +405,7 @@ function rulesDecision(
         `Incident risk ${incidentRisk} · ${closures} active closure(s) within 2km. `
       : `\n\nROAD INTELLIGENCE: TomTom data unavailable. `) +
     (parcelLive
-      ? `\n\nPARCEL DATA (Regrid county records — live): ` +
+      ? `\n\nPARCEL DATA (ATTOM county assessor — live): ` +
         `Lot: ${lotSqFt?.toLocaleString() ?? "?"} sqft (${lotAcres?.toFixed(2) ?? "?"} acres) · ` +
         `Dimensions: ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "unavailable"} · ` +
         `Zoning: ${parcelZoning ?? "unknown"}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""} · ` +
@@ -414,7 +414,7 @@ function rulesDecision(
         (parcelLastSale ? `Last sale: ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` (${parcelLastDate})` : ""} · ` : "") +
         (parcelLandVal ? `Assessed land: ${fmtUSD(parcelLandVal)} · ` : "") +
         `Express tunnel feasibility: ${lotSqFt !== null ? (lotSqFt >= EXPRESS_MIN_SQFT ? "FITS" : lotSqFt >= SELFSERVE_MIN_SQFT ? "TOO SMALL for Express — self-serve/in-bay only" : "TOO SMALL for any car wash format") : "unknown"}. `
-      : `\n\nPARCEL DATA: Not available (US-only via Regrid, or REGRID_API_KEY not configured). `) +
+      : `\n\nPARCEL DATA: Not available (US-only via ATTOM, or ATTOM_API_KEY not configured). `) +
     `\n\nINVESTMENT RANGE (BLS CPI-adjusted, ${inv.dataTimestamp}): ` +
     `${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} total. ` +
     `Breakdown — Land: ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} · ` +
@@ -520,7 +520,7 @@ export async function POST(req: NextRequest) {
     const incidentRisk = _tomtom?.incidents.accessRiskLevel ?? null;
     const closures     = _tomtom?.incidents.closureCount ?? 0;
 
-    // Extract Regrid parcel variables for use in AI prompts below
+    // Extract ATTOM parcel variables for use in AI prompts below
     const parcel         = result.parcel;
     const parcelLive     = parcel?.status === "live";
     const lotSqFt        = parcel?.lotSqFt ?? null;
@@ -583,9 +583,9 @@ Nearby shopping centers: ${result.trafficSignals.nearbyShopping} [source: Google
 Nearby gas stations: ${result.trafficSignals.nearbyGasStations} [source: Google Places API]
 Competitors within ${result.radiusMiles} miles: ${result.competitors.length} | Avg rating: ${result.reviewInsights.avgCompetitorRating.toFixed(1)} [source: Google Places API]
 Market saturation: ${result.reviewInsights.marketSaturationLevel}
-Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)} [source: 404 Financial Model]
+Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)} [source: Express Car Wash Investment Pro Forma]
 Payback: ${result.financialProjection.paybackYears} years | IRR: ~${result.financialProjection.irr5Year}%
-LABOUR RATES [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "404 Excel baseline (2017) — live data unavailable"}]: Staff $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)}/hr | Manager $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)}/hr | US baseline: $${US_BASELINE_STAFF_HOURLY}/hr staff
+LABOUR RATES [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "Pro Forma baseline (2017) — live data unavailable"}]: Staff $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)}/hr | Manager $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)}/hr | US baseline: $${US_BASELINE_STAFF_HOURLY}/hr staff
 COMPETITOR VOLUME [source: Google Maps Popular Times via SerpApi]: ${
   decision.keyFactors.find(f => f.includes("Competitor volume")) ?? "No volume data available"
 }
@@ -594,10 +594,10 @@ ROAD INTELLIGENCE [source: TomTom APIs — live data]: ${
     ? `Road class: ${roadLabel} (${roadClass}) | Traffic: ${congestion} | Incident risk: ${incidentRisk} | Active closures: ${closures} | 5-min drive-time isochrone: ${result.tomtom?.isochrones.fiveMin.status === "live" ? result.tomtom.isochrones.fiveMin.boundaryPoints + " boundary points" : "unavailable"} | 10-min isochrone: ${result.tomtom?.isochrones.tenMin.status === "live" ? result.tomtom.isochrones.tenMin.boundaryPoints + " boundary points" : "unavailable"}`
     : "TomTom data unavailable"
 }
-PARCEL DATA [source: Regrid county records — live]: ${
+PARCEL DATA [source: ATTOM county assessor — live]: ${
   parcelLive
     ? `Lot: ${lotSqFt?.toLocaleString() ?? "?"} sqft (${lotAcres?.toFixed(2) ?? "?"} acres) | Dimensions: ${widthFt ? `${widthFt}ft × ${depthFt}ft` : "unavailable"} | Zoning: ${parcelZoning ?? "unknown"}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""} | Land use: ${parcelLandUse ?? "unknown"} | Owner: ${parcelOwner ?? "unknown"} | Last sale: ${parcelLastSale ? fmtUSD(parcelLastSale) : "unknown"}${parcelLastDate ? ` (${parcelLastDate})` : ""} | Assessed land: ${parcelLandVal ? fmtUSD(parcelLandVal) : "unknown"} | Express tunnel fits: ${lotSqFt !== null ? (lotSqFt >= EXPRESS_MIN_SQFT ? "YES" : "NO — too small") : "unknown"}`
-    : "Not available (US-only, or REGRID_API_KEY not configured)"
+    : "Not available (US-only, or ATTOM_API_KEY not configured)"
 }
 INVESTMENT RANGE [source: ${inv.sourceNote}]: Total ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} | Land ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} | Construction ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)} | Equipment ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)} | Fees ${fmtUSD(inv.breakdown.fees.min)}–${fmtUSD(inv.breakdown.fees.max)}
 Existing red flags: ${decision.redFlags.join("; ")}
@@ -668,13 +668,13 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Nearby shopping centers/big-box: ${result.trafficSignals.nearbyShopping} (ideal: ≥1)\n` +
                 `- Nearby gas stations: ${result.trafficSignals.nearbyGasStations} (arterial road indicator)\n` +
                 `- Nearby fast food / restaurants: ${result.trafficSignals.nearbyFastFood}\n\n` +
-                `FINANCIAL PROJECTIONS [source: 404 Financial Model, August 2017]:\n` +
+                `FINANCIAL PROJECTIONS [source: Express Car Wash Investment Pro Forma, August 2017]:\n` +
                 `- Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)}\n` +
                 `- Year 1 EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)}\n` +
                 `- Year 5 Revenue: ${fmtUSD(result.financialProjection.year5Revenue)}\n` +
                 `- Payback period: ${result.financialProjection.paybackYears} years\n` +
                 `- 5-Year IRR: ~${result.financialProjection.irr5Year}%\n\n` +
-                `LABOUR COSTS [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "404 Excel baseline 2017 — live data unavailable"}]:\n` +
+                `LABOUR COSTS [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "Pro Forma baseline 2017 — live data unavailable"}]:\n` +
                 `- Staff hourly: $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)} USD (US baseline: $${US_BASELINE_STAFF_HOURLY})\n` +
                 `- Manager hourly: $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)} USD (US baseline: $${US_BASELINE_MANAGER_HOURLY})\n` +
                 `- Note: labour costs are ALREADY factored into the EBITDA above\n\n` +
@@ -691,7 +691,7 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                     `- 15-min drive-time isochrone: ${result.tomtom?.isochrones.fifteenMin.status === "live" ? "computed (" + result.tomtom.isochrones.fifteenMin.boundaryPoints + " boundary points)" : "unavailable"}\n\n`
                   : "- TomTom data unavailable\n\n") +
                 (parcelLive
-                  ? `PARCEL DATA [source: Regrid county records — live]:\n` +
+                  ? `PARCEL DATA [source: ATTOM county assessor — live]:\n` +
                     `- Lot size: ${lotSqFt?.toLocaleString() ?? "?"} sqft (${lotAcres?.toFixed(2) ?? "?"} acres)\n` +
                     `- Dimensions: ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "unavailable"}\n` +
                     `- Zoning: ${parcelZoning ?? "unknown"}${parcel?.zoningDescription ? ` (${parcel.zoningDescription})` : ""}\n` +
@@ -700,7 +700,7 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                     (parcelLastSale ? `- Last sale: ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` on ${parcelLastDate}` : ""}\n` : "") +
                     (parcelLandVal ? `- Assessed land value: ${fmtUSD(parcelLandVal)}\n` : "") +
                     `- Express tunnel fit (needs 30,625 sqft min): ${lotSqFt !== null ? (lotSqFt >= EXPRESS_MIN_SQFT ? "YES — fits" : "NO — too small") : "unknown"}\n\n`
-                  : `PARCEL DATA: Not available (US-only via Regrid API, or REGRID_API_KEY not configured).\n\n`) +
+                  : `PARCEL DATA: Not available (US-only via ATTOM API, or ATTOM_API_KEY not configured).\n\n`) +
                 `INVESTMENT RANGE [source: ${inv.sourceNote}]:\n` +
                 `- Total: ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)}\n` +
                 `- Land: ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)}\n` +

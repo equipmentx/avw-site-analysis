@@ -213,14 +213,14 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           {[
             ["Daily Traffic Estimate",  formatNumber(assumptions.dailyTrafficCount) + " cars/day", "Google Maps review-volume formula"],
-            ["Capture Rate",            (assumptions.captureRate * 100).toFixed(0) + "%",           "404 Financial Model — industry benchmark"],
+            ["Capture Rate",            (assumptions.captureRate * 100).toFixed(0) + "%",           "Express Car Wash Pro Forma — industry benchmark"],
             ["Daily Cars Washed",       formatNumber(assumptions.dailyCarsWashed) + " cars",        "Traffic × capture rate"],
-            ["Avg Revenue Per Car",     "$" + assumptions.avgRevenuePerCar.toFixed(2),              "404 Financial Model — weighted pricing tiers"],
-            ["Land Cost",               fmtC(assumptions.landCost, rate, symbol),                   "23.9% of total project cost (404 model ratio)"],
-            ["Equipment Cost",          fmtC(assumptions.equipmentCost, rate, symbol),              "32.8% of total project cost (404 model ratio)"],
-            ["Construction Cost",       fmtC(assumptions.constructionCost, rate, symbol),           "29.5% of total project cost (404 model ratio)"],
-            ["Interest Rate",           (assumptions.interestRate * 100).toFixed(0) + "%",          "404 model — standard SBA commercial lending rate"],
-            ["Loan Term",               assumptions.loanTermYears + " years",                       "404 model — standard commercial term"],
+            ["Avg Revenue Per Car",     "$" + assumptions.avgRevenuePerCar.toFixed(2),              "Express Car Wash Pro Forma — weighted pricing tiers"],
+            ["Land Cost",               fmtC(assumptions.landCost, rate, symbol),                   "23.9% of total project cost (Pro Forma model ratio)"],
+            ["Equipment Cost",          fmtC(assumptions.equipmentCost, rate, symbol),              "32.8% of total project cost (Pro Forma model ratio)"],
+            ["Construction Cost",       fmtC(assumptions.constructionCost, rate, symbol),           "29.5% of total project cost (Pro Forma model ratio)"],
+            ["Interest Rate",           (assumptions.interestRate * 100).toFixed(0) + "%",          "Pro Forma model — standard SBA commercial lending rate"],
+            ["Loan Term",               assumptions.loanTermYears + " years",                       "Pro Forma model — standard commercial term"],
           ].map(([label, value, source]) => (
             <div key={label} className="flex flex-col border-l-2 border-slate-700 pl-3">
               <span className="text-slate-200 text-xs">{label}</span>
@@ -237,7 +237,7 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
             assumptions.wageSource === "ilo-occupation"   ? `ILO ILOSTAT — service workers (${assumptions.wagePeriod})` :
             assumptions.wageSource === "ilo-all-workers"  ? `ILO ILOSTAT — all workers, adj. (${assumptions.wagePeriod})` :
             assumptions.wageSource === "world-bank-derived" ? `World Bank GNI-derived (${assumptions.wagePeriod})` :
-            "404 Excel baseline (2017)";
+            "Pro Forma baseline (2017)";
           return (
         <div className={`mt-4 rounded-xl p-3 border text-xs flex items-start gap-2 ${
           isLive ? "bg-emerald-500/5 border-emerald-500/20" : "bg-yellow-500/5 border-yellow-500/20"
@@ -258,7 +258,7 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
         })()}
 
         <p className="text-slate-300 text-xs mt-4 leading-relaxed border-t border-slate-700/30 pt-4">
-          <span className="text-slate-200 font-semibold">Revenue model:</span> 404 Financial Model (August 2017, US baseline $3,663,000).
+          <span className="text-slate-200 font-semibold">Revenue model:</span> Express Car Wash Pro Forma (August 2017, US baseline $3,663,000).
           Pricing tiers: Bronze $9 &middot; Silver $12 &middot; Gold $18 &middot; Best In Class $23 &middot; Unlimited plans $19.99–$40/mo.
           Costs, depreciation, and financing terms anchored directly to the verified Excel spreadsheet.
           All projections are estimates — verify with a qualified financial advisor before committing capital.

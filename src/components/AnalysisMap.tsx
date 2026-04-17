@@ -167,7 +167,14 @@ export default function AnalysisMap({ center, competitors, apiKey, radiusMiles =
       // ── Competitor markers ─────────────────────────────────────────────────
       competitors.forEach((comp, i) => {
         const { place, distanceMiles, threatLevel, sentiment } = comp;
-        const pos = place.geometry.location;
+        // Normalise coords — REST API returns numbers, JS API returns functions
+        const rawPos = place.geometry.location;
+        const pos = {
+          lat: typeof (rawPos as any).lat === "function" ? (rawPos as any).lat() : rawPos.lat,
+          lng: typeof (rawPos as any).lng === "function" ? (rawPos as any).lng() : rawPos.lng,
+        };
+        // Skip markers with clearly invalid coordinates (NaN or zero-island)
+        if (!isFinite(pos.lat) || !isFinite(pos.lng) || (pos.lat === 0 && pos.lng === 0)) return;
         const colorMap = { LOW: "#10b981", MEDIUM: "#f59e0b", HIGH: "#ef4444" };
         const color = colorMap[threatLevel];
 
@@ -209,6 +216,9 @@ export default function AnalysisMap({ center, competitors, apiKey, radiusMiles =
                style="display:inline-flex;align-items:center;gap:4px;margin-top:10px;font-size:11px;color:#60a5fa;text-decoration:none;font-weight:600;">
               📍 Open in Google Maps →
             </a>
+            <div style="margin-top:8px;font-size:10px;color:#64748b;border-top:1px solid #1e3a5f;padding-top:6px;">
+              Pin location from Google Maps database. Verify via site visit.
+            </div>
           </div>
         `;
 

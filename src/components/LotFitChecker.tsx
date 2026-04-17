@@ -240,8 +240,8 @@ export default function LotFitChecker({ prefilledWidthFt, prefilledDepthFt }: Pr
         <p className="text-slate-300 text-xs leading-relaxed">
           {prefilledWidthFt && prefilledDepthFt
             ? <>
-                <span className="text-emerald-300 font-semibold">Auto-filled from Regrid parcel data</span> — dimensions
-                computed from the GIS parcel boundary. You can edit them manually below.{" "}
+                <span className="text-emerald-300 font-semibold">Auto-filled from ATTOM parcel data</span> — dimensions
+                from county assessor lot record. You can edit them manually below.{" "}
               </>
             : null}
           Minimum sizes are based on <span className="text-white font-semibold">Tommy Car Wash Systems</span> layout specs

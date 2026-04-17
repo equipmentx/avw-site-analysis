@@ -1,11 +1,19 @@
 /**
- * Financial Model derived directly from the 404.xlsx car wash investment spreadsheet.
+ * Financial Model derived from the Express Car Wash Investment Pro Forma spreadsheet,
+ * updated with 2024-2025 industry benchmarks.
+ *
+ * Data sources:
+ *   - ICA (International Carwash Association) 2024 Industry Report
+ *   - Rinsed Q4 2024 Car Wash Industry Benchmarks
+ *   - MMCG Invest / Motor City Wash Works 2024/2025 project cost data
+ *   - ZipRecruiter / BLS 2024 wage data for car wash operators
+ *   - SharpSheets 2024 car wash financial model benchmarks
  *
  * HOW IT WORKS:
  * 1. The user's budget is their Total Project Cost — the formula doesn't change, the budget drives it.
  * 2. Based on the budget, we determine what TYPE of car wash is feasible.
- * 3. The Excel operating model (pricing tiers, costs per car, salaries, SG&A) is FIXED.
- * 4. Revenue is driven by traffic (from Google Maps location data), not by the budget.
+ * 3. The operating model (pricing tiers, costs per car, salaries, SG&A) is FIXED at 2024-2025 benchmarks.
+ * 4. Revenue is driven by traffic (from TomTom real-time road data), not by the budget.
  * 5. The budget drives financing: 20% down payment, 80% bank loan at 7% for 20 years.
  */
 
@@ -32,35 +40,35 @@ export function getCarWashFormat(budgetUSD: number): CarWashFormat {
     return {
       id: "premium", name: "Premium Express Tunnel", feasible: true,
       description: "Full-scale flagship tunnel (100ft+) with unlimited membership kiosks, free vacuums, and all amenities. The highest-revenue format in the industry.",
-      minBudgetUSD: 4_000_000, captureRate: 0.022, avgRevPerCar: 14.50,
+      minBudgetUSD: 4_000_000, captureRate: 0.013, avgRevPerCar: 14.00,
     };
   }
-  if (budgetUSD >= 2_500_000) {
+  if (budgetUSD >= 3_500_000) {
     return {
       id: "express", name: "Express Tunnel (Standard)", feasible: true,
-      description: "The industry's proven sweet spot — a conveyor-belt tunnel (80–100ft) with pay stations and free vacuums. This is exactly what the 404 Excel model is built around.",
-      minBudgetUSD: 2_500_000, captureRate: 0.02, avgRevPerCar: 12.96,
+      description: "The industry's proven sweet spot — a conveyor-belt tunnel (80–100ft) with pay stations and free vacuums. Built around 2024-2025 industry benchmarks.",
+      minBudgetUSD: 3_500_000, captureRate: 0.0085, avgRevPerCar: 14.00,
     };
   }
-  if (budgetUSD >= 1_500_000) {
+  if (budgetUSD >= 2_000_000) {
     return {
       id: "mini_tunnel", name: "Mini Express Tunnel", feasible: true,
       description: "A shorter conveyor-belt tunnel (40–70ft). Lower throughput than the standard express but still a proper automated wash. Good for smaller markets.",
-      minBudgetUSD: 1_500_000, captureRate: 0.015, avgRevPerCar: 11.50,
+      minBudgetUSD: 2_000_000, captureRate: 0.007, avgRevPerCar: 12.00,
     };
   }
   if (budgetUSD >= 800_000) {
     return {
       id: "in_bay", name: "In-Bay Automatic", feasible: true,
       description: "A rollover machine — customers pull in and stay in the car while the machine moves over them. Lower throughput (10–15 cars/hr) but much lower build cost.",
-      minBudgetUSD: 800_000, captureRate: 0.01, avgRevPerCar: 10.00,
+      minBudgetUSD: 800_000, captureRate: 0.005, avgRevPerCar: 10.00,
     };
   }
   if (budgetUSD >= 300_000) {
     return {
       id: "self_serve", name: "Self-Serve Bays", feasible: true,
       description: "Customers wash their own car using your wands and foamers. Lowest revenue per car, but lowest build cost. Often used as a stepping stone to a larger format.",
-      minBudgetUSD: 300_000, captureRate: 0.005, avgRevPerCar: 6.00,
+      minBudgetUSD: 300_000, captureRate: 0.003, avgRevPerCar: 6.00,
     };
   }
   return {
@@ -70,51 +78,57 @@ export function getCarWashFormat(budgetUSD: number): CarWashFormat {
   };
 }
 
-// ─── Excel-Derived Operating Constants (FIXED — do not scale with budget) ─────
+// ─── Operating Constants (2024-2025 Industry Benchmarks) ─────────────────────
+//
+// Sources:
+//   ICA 2024 Industry Report, Rinsed Q4 2024 Benchmarks, SharpSheets 2024,
+//   ZipRecruiter/BLS 2024 wage data, MMCG Invest / Motor City Wash Works project costs.
 
-// Pricing tiers from "Key Assumptions & Drivers" sheet
+// Pricing tiers — 2024-2025 US express tunnel market
 const PRICING_TIERS = [
-  { name: "Bronze",        price: 9,     varChem: 0.58, mixPct: 0.50 },
-  { name: "Silver",        price: 12,    varChem: 1.00, mixPct: 0.10 },
-  { name: "Gold",          price: 18,    varChem: 1.50, mixPct: 0.10 },
-  { name: "Best In Class", price: 23,    varChem: 2.09, mixPct: 0.30 },
+  { name: "Basic",          price: 9,     varChem: 0.45, mixPct: 0.40 },
+  { name: "Standard",       price: 14,    varChem: 0.60, mixPct: 0.25 },
+  { name: "Premium",        price: 20,    varChem: 0.75, mixPct: 0.20 },
+  { name: "Ultimate",       price: 26,    varChem: 0.90, mixPct: 0.15 },
 ];
 
 const UNLIMITED_TIERS = [
-  { name: "Gold Unlimited", price: 19.99, varChem: 1.50, mixPct: 0.70 },
-  { name: "BIC Unlimited",  price: 40,    varChem: 2.09, mixPct: 0.30 },
+  { name: "Standard Unlimited", price: 26.00, varChem: 0.60, mixPct: 0.65 },
+  { name: "Premium Unlimited",  price: 45.00, varChem: 0.90, mixPct: 0.35 },
 ];
 
-// Weighted averages from Excel row 18 & 21
-const WTD_AVG_PRICE_PER_CAR   = 12.96;   // express tunnel standard wash avg
-const WTD_AVG_PRICE_UNLIMITED = 25.993;  // unlimited plan weighted avg
-const VAR_CHEM_COST_PER_CAR   = 1.167;   // weighted chemical cost per car
+// Weighted averages — 2024-2025 benchmarks
+// ICA 2024: average ticket $14; Rinsed Q4 2024: avg membership $30/month
+const WTD_AVG_PRICE_PER_CAR   = 14.00;   // 2024 industry average ticket price
+const WTD_AVG_PRICE_UNLIMITED = 30.00;   // 2024 average membership revenue per member/month
+const VAR_CHEM_COST_PER_CAR   = 0.64;    // ICA 2024: chemical cost per car (was $1.167 in 2017)
 
-// Variable costs per car from Excel rows 46-55
+// Variable costs per car — 2024-2025 benchmarks
 const VAR_COST_PER_CAR = {
-  utilities:    0.66 * 0.9,  // 90% allocated to COGS
-  repairsMaint: 0.29 * 0.5,  // 50% allocated to COGS
+  utilities:    0.55 * 0.9,  // 90% allocated to COGS
+  repairsMaint: 0.28 * 0.5,  // 50% allocated to COGS
   autoClaims:   0.06,
   supplies:     0.04,
 };
 const TOTAL_VAR_COST_PER_CAR = Object.values(VAR_COST_PER_CAR).reduce((a, b) => a + b, 0);
 
-// SG&A from Excel rows 62-67
+// SG&A — 2024-2025 (insurance costs have risen since 2017)
 const FIXED_SGA = {
   marketingMonthly:       2_500,
-  bankChargesMonthly:     200,
-  insuranceAnnual:        30_000,
+  bankChargesMonthly:     250,
+  insuranceAnnual:        38_000,   // ICA 2024: ~$35-42K typical
   officeMiscMonthly:      1_500,
   computerInternetMthly:  1_500,
 };
 
-// Salary from Excel rows 71-76
+// Labor — 2024-2025 US benchmarks (ZipRecruiter / BLS data)
+// Car wash manager: $16-22/hr avg; attendants/FT: $13-16/hr avg
 const LABOR = {
-  siteManager: { hourlyRate: 30, hoursPerYear: 2080 },
-  fullTime1:   { hourlyRate: 16, hoursPerYear: 2080 },
-  fullTime2:   { hourlyRate: 16, hoursPerYear: 2080 },
-  burden:      0.097 + 0.033,  // taxes + benefits
-  yr2Raise:    0.08,           // 8% annual raise for FT staff (Excel row 73)
+  siteManager: { hourlyRate: 19, hoursPerYear: 2080 },  // 2024 avg: $16-22/hr
+  fullTime1:   { hourlyRate: 15, hoursPerYear: 2080 },  // 2024 avg: $13-16/hr
+  fullTime2:   { hourlyRate: 15, hoursPerYear: 2080 },
+  burden:      0.097 + 0.033,  // FICA taxes + benefits
+  yr2Raise:    0.04,           // 4% annual raise (moderating from 8% post-COVID)
 };
 
 // Depreciation from Excel rows 58-59
@@ -281,7 +295,8 @@ export function runFinancialModel(
   //   Equipment     32.8%  ($1,200K / $3,663K)
   //   Construction  29.5%  ($1,080K / $3,663K)
   //   Fees + misc   13.8%  ($250K + $150K + contingency / $3,663K)
-  const totalBase         = budget > 0 ? budget : 3_663_000;
+  // 2025 midpoint: MMCG / Motor City Wash Works data — express tunnel $3.5M-$6M suburban
+  const totalBase         = budget > 0 ? budget : 4_500_000;
   const landCost          = Math.round(totalBase * 0.239);
   const equipmentCost     = Math.round(totalBase * 0.328);
   const constructionCost  = Math.round(totalBase * 0.295);
@@ -365,10 +380,10 @@ export function runFinancialModel(
     staffHourlyUSD:    parseFloat(staffHourly.toFixed(2)),
     managerHourlyUSD:  parseFloat(managerHourly.toFixed(2)),
     wageSource:        wagesAvailable ? (wageRates!.source as any) : "excel-baseline",
-    wagePeriod:        wagesAvailable ? wageRates!.period : "404 Excel baseline (2017)",
+    wagePeriod:        wagesAvailable ? wageRates!.period : "2024-2025 US industry benchmarks",
     wageNote:          wagesAvailable
       ? wageRates!.note
-      : "Live wage data unavailable — using 404 Financial Model Excel baseline rates ($16/hr staff · $30/hr manager, US 2017). Verify local labour costs with an HR consultant.",
+      : "Live wage data unavailable — using 2024-2025 US industry benchmarks ($15/hr staff · $19/hr manager; ZipRecruiter/BLS 2024). Verify local labour costs with an HR consultant.",
   };
 
   return {

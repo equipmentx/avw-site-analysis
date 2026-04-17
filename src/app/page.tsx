@@ -34,35 +34,35 @@ const FEATURES = [
   {
     icon: <Star className="w-6 h-6 text-yellow-400" />,
     title: "Competitor Analysis",
-    desc: "Deep dive into every car wash near your site — ratings, reviews, weaknesses, and service gaps you can exploit.",
+    desc: "Maps every car wash near your site — ratings, review counts, and service gaps identified from live customer feedback.",
   },
   {
     icon: <BarChart2 className="w-6 h-6 text-emerald-400" />,
     title: "5-Year Financial Model",
-    desc: "Projects revenue, EBITDA, and payback period based on real industry benchmarks and your investment budget.",
+    desc: "Projects estimated revenue, EBITDA, and payback period based on industry benchmarks anchored to a verified US development model.",
   },
   {
     icon: <TrendingUp className="w-6 h-6 text-purple-400" />,
     title: "Opportunity Scoring",
-    desc: "Scores your location 0 to 100 and issues a clear GO, CAUTION, or NO-GO verdict with plain-English reasoning.",
+    desc: "Scores your location 0 to 100 using AADT traffic data, competition density, and market viability — with plain-English explanation.",
   },
   {
     icon: <DollarSign className="w-6 h-6 text-green-400" />,
-    title: "Investment Sizing",
-    desc: "Enter your budget and receive a custom capital stack, loan structure, and return on investment estimate.",
+    title: "Investment Range",
+    desc: "Provides a data-backed cost range for each car wash format — land, construction, equipment, and fees — based on live parcel and regional data.",
   },
   {
     icon: <Zap className="w-6 h-6 text-orange-400" />,
-    title: "Instant Results",
-    desc: "Full site analysis delivered in under 30 seconds. No spreadsheets, no consultants, no guesswork required.",
+    title: "Parcel & Zoning Data",
+    desc: "Pulls the actual county assessor record — lot size, AVM estimate, assessed value, last sale price, zoning code, and ownership — from ATTOM Data. Building footprint from OpenStreetMap.",
   },
 ];
 
-const STATS = [
-  { label: "Locations Analyzed",   value: 12400, suffix: "+" },
-  { label: "Average Analysis Time", value: 30,    suffix: "s" },
-  { label: "Data Points Checked",   value: 200,   suffix: "+" },
-  { label: "Investor Accuracy",     value: 94,    suffix: "%" },
+const DATA_POINTS = [
+  { label: "Traffic Data Source",   text: "TomTom AADT" },
+  { label: "Property Records",      text: "ATTOM · Assessor" },
+  { label: "Competitor Data",       text: "Google Places" },
+  { label: "Cost Benchmarks",       text: "Car Wash Pro Forma" },
 ];
 
 const SCORE_BARS = [
@@ -72,25 +72,6 @@ const SCORE_BARS = [
   { label: "Market Activity",   val: 72, color: "#eab308" },
   { label: "Financial Viability", val: 80, color: "#ec4899" },
 ];
-
-// ── Stats count-up (fires on page load) ───────────────────────────────────────
-function CountUp({ target, suffix }: { target: number; suffix: string }) {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    const steps = 60;
-    const duration = 2000;
-    let step = 0;
-    const timer = setInterval(() => {
-      step++;
-      setCount(Math.min(Math.round((target / steps) * step), target));
-      if (step >= steps) clearInterval(timer);
-    }, duration / steps);
-    return () => clearInterval(timer);
-  }, [target]);
-
-  return <span>{count.toLocaleString()}{suffix}</span>;
-}
 
 // ── Typewriter heading (fires when scrolled into view) ────────────────────────
 function TypewriterHeading({ text }: { text: string }) {
@@ -225,7 +206,6 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
   const [error, setError] = useState("");
-  const [budgetError, setBudgetError] = useState("");
   const [bgIndex, setBgIndex] = useState(0);
   const [bgFading, setBgFading] = useState(false);
   const [currency, setCurrency] = useState<CurrencyOption>(CURRENCIES[0]);
@@ -286,14 +266,10 @@ export default function LandingPage() {
   const handleAnalyze = () => {
     const val = inputRef.current?.value || address;
     if (!val.trim()) { setError("Please enter an address or location."); return; }
-    if (!budget.trim()) {
-      setBudgetError("Investment amount is required to run the analysis.");
-      return;
-    }
     setError("");
-    setBudgetError("");
     setLoading(true);
-    const params = new URLSearchParams({ address: val, budget, currency: currency.code, radius: radiusMiles.toString() });
+    const params = new URLSearchParams({ address: val, currency: currency.code, radius: radiusMiles.toString() });
+    if (budget) params.set("budget", budget);
     router.push(`/configure?${params.toString()}`);
   };
 
@@ -317,10 +293,9 @@ export default function LandingPage() {
         <button onClick={handleLogoClick} className="flex items-center gap-2 group" title="Refresh">
           <img
             src="/avw-logo.png"
-            alt="AVW Site Intel"
+            alt="Car Wash Site Analysis"
             className="h-9 w-auto object-contain group-hover:scale-105 transition-transform"
           />
-          <span className="font-bold text-white text-base tracking-tight">AVW Site Intel</span>
         </button>
 
         <div className="hidden md:flex items-center gap-6 text-sm text-slate-200">
@@ -331,7 +306,7 @@ export default function LandingPage() {
 
         <div className="flex items-center gap-2 text-xs bg-blue-500/10 text-blue-300 border border-blue-500/20 rounded-full px-3 py-1.5">
           <Shield className="w-3 h-3" />
-          <span>Trusted by Investors Nationwide</span>
+          <span>Car Wash Site Intelligence</span>
         </div>
       </nav>
 
@@ -340,21 +315,20 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-full px-4 py-2 text-sm text-blue-300 mb-8">
             <Shield className="w-4 h-4" />
-            <span>Professional site analysis for car wash investors and developers</span>
+            <span>Data-driven site analysis for car wash investors and developers</span>
           </div>
 
           <h1 className="text-5xl md:text-7xl font-black text-white leading-tight mb-6 tracking-tight">
-            Know If Your Location{" "}
+            Know What the Data Says{" "}
             <span className="bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
-              Will Win
-            </span>{" "}
-            Before You Build
+              Before You Build
+            </span>
           </h1>
 
           <p className="text-xl text-white/90 max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-            Enter any address in the world. AVW Site Intel analyzes traffic, competitors,
-            customer complaints, and financial potential, delivering a crystal clear
-            GO or NO-GO verdict in under 30 seconds.
+            Enter any US address. We pull live traffic counts, parcel records, competitor data,
+            and construction cost benchmarks — and present what the data shows about your site.
+            You make the decision.
           </p>
 
           {/* Search box */}
@@ -372,17 +346,14 @@ export default function LandingPage() {
                   onChange={(e) => setAddress(e.target.value)}
                 />
               </div>
-              <div className={`flex items-center gap-2 px-3 py-2 border-t ${budgetError ? "border-red-500/50" : "border-slate-700/40"}`}>
+              <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
                 <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
                 <input
                   type="text"
-                  placeholder={`Investment amount required — e.g., ${currency.symbol}3,500,000`}
+                  placeholder={`Budget (optional) — e.g., ${currency.symbol}3,500,000`}
                   className="flex-1 bg-transparent text-slate-200 placeholder-slate-500 text-sm outline-none"
                   value={budget ? parseInt(budget).toLocaleString() : ""}
-                  onChange={(e) => {
-                    setBudget(e.target.value.replace(/[^0-9]/g, ""));
-                    if (budgetError) setBudgetError("");
-                  }}
+                  onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
                 />
                 {budget && (
                   <span className="text-xs text-emerald-400 font-semibold whitespace-nowrap">
@@ -390,43 +361,34 @@ export default function LandingPage() {
                   </span>
                 )}
               </div>
-              {budgetError && (
-                <p className="text-red-400 text-xs px-3 pb-1 flex items-center gap-1">
-                  <span>⚠</span> {budgetError}
-                </p>
-              )}
 
-              {/* Radius selector — slider 5→70 mi */}
+              {/* Radius selector — slider 5→31 mi (Google Places API hard limit) */}
               <div className="flex flex-col gap-1.5 px-3 py-2.5 border-t border-slate-700/40">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="text-slate-400 text-xs">Radar radius</span>
+                    <span className="text-slate-400 text-xs">Search radius</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-blue-300 font-bold text-sm tabular-nums">{radiusMiles} mi</span>
-                    {radiusMiles > 30 && (
-                      <span className="text-[9px] text-amber-400/80 font-medium">(API capped ~31 mi)</span>
-                    )}
-                  </div>
+                  <span className="text-blue-300 font-bold text-sm tabular-nums">{radiusMiles} mi</span>
                 </div>
                 <input
                   type="range"
                   min={5}
-                  max={70}
-                  step={5}
+                  max={31}
+                  step={1}
                   value={radiusMiles}
                   onChange={(e) => setRadiusMiles(parseInt(e.target.value))}
                   className="w-full h-1.5 rounded-full accent-blue-500 cursor-pointer"
                   style={{
-                    background: `linear-gradient(to right, #3b82f6 ${((radiusMiles - 5) / 65) * 100}%, #1e293b ${((radiusMiles - 5) / 65) * 100}%)`,
+                    background: `linear-gradient(to right, #3b82f6 ${((radiusMiles - 5) / 26) * 100}%, #1e293b ${((radiusMiles - 5) / 26) * 100}%)`,
                   }}
                 />
                 <div className="flex justify-between text-[9px] text-slate-600 font-medium">
                   <span>5 mi</span>
-                  <span>35 mi</span>
-                  <span>70 mi</span>
+                  <span>18 mi</span>
+                  <span>31 mi</span>
                 </div>
+                <p className="text-slate-500 text-[9px]">Competitor search capped at 31 miles — Google Places API limit</p>
               </div>
 
               <button
@@ -456,15 +418,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Stats bar */}
-      <section className="relative z-10 border-y border-slate-700/50 bg-slate-900/60 backdrop-blur-sm py-8 px-4">
-        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8">
-          {STATS.map((s) => (
-            <div key={s.label} className="text-center">
-              <div className="text-3xl font-black text-white mb-1">
-                <CountUp target={s.value} suffix={s.suffix} />
-              </div>
-              <div className="text-xs text-slate-300 uppercase tracking-widest">{s.label}</div>
+      {/* Data sources bar */}
+      <section className="relative z-10 border-y border-slate-700/50 bg-slate-900/60 backdrop-blur-sm py-6 px-4">
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6">
+          {DATA_POINTS.map((d) => (
+            <div key={d.label} className="text-center">
+              <div className="text-base font-bold text-white mb-0.5">{d.text}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-widest">{d.label}</div>
             </div>
           ))}
         </div>
@@ -503,29 +463,29 @@ export default function LandingPage() {
       <section id="how-it-works" className="relative z-10 py-24 px-4 bg-slate-900/55">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-16">
-            <TypewriterHeading text="Three Steps to Clarity" />
+            <TypewriterHeading text="Three Steps to Your Site Report" />
             <p className="text-slate-200 text-lg">
-              No spreadsheets. No consultants. No guesswork.
+              Live data. Disclosed sources. You decide.
             </p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
                 step: "01",
-                title: "Enter Your Location",
-                desc: "Type any address in the world. Our autocomplete knows every street, city, and landmark on the planet.",
+                title: "Enter a US Address",
+                desc: "Type any address or landmark. We geocode it and pull the county parcel record, traffic data, and nearby competitor listings.",
                 color: "blue",
               },
               {
                 step: "02",
-                title: "We Analyze Everything",
-                desc: "We scan nearby car washes, pull 200 data points, analyze competitor reviews, and model your financials all in seconds.",
+                title: "We Pull the Data",
+                desc: "TomTom AADT, Google Places competitors, ATTOM parcel record, ILO wage data, and a verified cost model — all fetched live.",
                 color: "purple",
               },
               {
                 step: "03",
-                title: "Get Your Verdict",
-                desc: "Receive a clear GO, CAUTION, or NO-GO score with specific recommendations tailored to your exact site.",
+                title: "Review the Report",
+                desc: "You get a scored site report with every data source disclosed. The scoring reflects traffic, competition, and market density — nothing fabricated.",
                 color: "emerald",
               },
             ].map((item) => (
@@ -549,15 +509,14 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-black text-white mb-4">
-              Built for the Investor Who Has{" "}
+              Built for Investors Who Want{" "}
               <span className="bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
-                the Capital, Not the Background
+                Real Data, Not Gut Feeling
               </span>
             </h2>
-            {/* Pure white as requested */}
             <p className="text-white text-lg max-w-2xl mx-auto font-medium leading-relaxed">
-              Whether you are a nurse, a contractor, or a first-time investor, AVW Site Intel
-              speaks plain English and tells you exactly what to do next.
+              Whether you are a first-time investor or an experienced developer,
+              every number in the report comes from a disclosed source — and the final call is always yours.
             </p>
           </div>
 
@@ -568,14 +527,14 @@ export default function LandingPage() {
                 <h3 className="text-white font-bold text-xl mb-6">Your Report Includes:</h3>
                 <div className="space-y-3.5">
                   {[
-                    "Overall site score (0 to 100) with plain-English explanation",
-                    "Interactive map of all car washes within 5 miles",
-                    "Competitor strengths, weaknesses, and full review breakdown",
-                    "What customers are complaining about and how to capitalize on it",
-                    "5-year revenue and profit projections",
-                    "Exact capital requirements and loan structure",
-                    "Personalized strategic recommendations for your site",
-                    "Estimated daily car volume and capture rate analysis",
+                    "Site score (0–100) based on AADT traffic, competition density, and market viability",
+                    "Interactive map of all car washes within your chosen radius",
+                    "Competitor ratings, review count, and customer complaint breakdown",
+                    "County parcel record — owner, lot size, assessed value, zoning, last sale",
+                    "Investment cost range based on car wash format and regional cost data",
+                    "5-year financial projection anchored to a verified industry model",
+                    "Lot fit check — which formats physically fit on the parcel",
+                    "Strategic observations — what the data suggests, not guarantees",
                   ].map((item) => (
                     <div key={item} className="flex items-start gap-3">
                       <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -620,13 +579,13 @@ export default function LandingPage() {
           <button onClick={handleLogoClick} className="flex items-center group">
             <img
               src="/avw-logo.png"
-              alt="AVW Site Intel"
+              alt="Car Wash Site Analysis"
               className="h-7 w-auto object-contain group-hover:scale-105 transition-transform"
             />
           </button>
 
           <p className="text-slate-200 text-xs text-center font-medium">
-            &copy; 2026 AVW Site Intel. Professional site analysis for car wash investors.
+            &copy; 2026 Car Wash Site Intelligence. For informational purposes only — verify all data with qualified professionals before committing capital.
           </p>
 
           <p className="text-slate-200 text-xs font-medium">

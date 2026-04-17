@@ -159,7 +159,7 @@ export default function InvestmentSuggestionPanel({ data, currency, rate, fetche
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-emerald-400 text-xs font-semibold">Live exchange rate</span>
           <span className="text-slate-300 text-xs">
-            — fetched {new Date(fetchedAt).toLocaleTimeString()} &middot; Source: European Central Bank
+            — fetched {new Date(fetchedAt).toLocaleTimeString()} &middot; Source: US Federal Reserve FRED
           </span>
         </div>
       </div>

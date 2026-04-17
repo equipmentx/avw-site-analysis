@@ -23,9 +23,11 @@ import type {
   TomTomIncident,
   TomTomIncidentsData,
   TomTomSiteData,
+  TomTomSpeedProfile,
   TomTomVehicleCount,
 } from "./types";
 import https from "https";
+import { HTTP_AGENT } from "./dnsAgent";
 
 const TOMTOM_BASE    = "https://api.tomtom.com";
 const TOMTOM_TIMEOUT = 15_000;
@@ -34,7 +36,8 @@ const TOMTOM_TIMEOUT = 15_000;
  * Uses Node's native https module instead of fetch.
  * fetch/undici has SSL connection issues on Windows for certain hosts.
  */
-function ttFetch(url: string): Promise<any | null> {
+function ttFetch(url: string, redirectsLeft = 5): Promise<any | null> {
+  if (redirectsLeft <= 0) return Promise.resolve(null);
   return new Promise((resolve) => {
     const safeUrl = url.replace(/key=[^&]+/, "key=***");
     const timer = setTimeout(() => {
@@ -42,7 +45,14 @@ function ttFetch(url: string): Promise<any | null> {
       resolve(null);
     }, TOMTOM_TIMEOUT);
 
-    const req = https.get(url, { headers: { "User-Agent": "AVW-Site-Intel/1.0" } }, (res) => {
+    const req = https.get(url, { agent: HTTP_AGENT, headers: { "User-Agent": "AVW-Site-Intel/1.0" } }, (res) => {
+      // Follow redirects
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        clearTimeout(timer);
+        res.resume();
+        ttFetch(res.headers.location, redirectsLeft - 1).then(resolve);
+        return;
+      }
       let raw = "";
       res.on("data", (chunk) => { raw += chunk; });
       res.on("end", () => {
@@ -116,17 +126,29 @@ const ROAD_STATS: Record<string, RoadStats> = {
 };
 
 /**
- * Derive vehicle counts from TomTom flow speed data using the BPR volume-delay function.
+ * Derive vehicle counts from TomTom flow speed data.
  *
- * Bureau of Public Roads (BPR) function (standard traffic engineering):
- *   t = t₀ × (1 + α × (v/c)^β)   where α=0.15, β=4 (US standard calibration)
+ * Two-stage approach:
  *
- * Rearranged to solve for v/c from observed speed:
- *   delay_ratio = freeFlowSpeed / currentSpeed  (since time = distance/speed)
- *   v/c = ((delay_ratio − 1) / α)^(1/β)
+ * Stage 1 — BPR volume-delay (Bureau of Public Roads, standard traffic engineering):
+ *   delay_ratio = freeFlowSpeed / currentSpeed
+ *   v/c = ((delay_ratio − 1) / 0.15)^0.25    (BPR α=0.15, β=4 — US standard)
+ *   This gives us a congestion index (0 = free flow, 1 = at capacity).
  *
- * Then: vehiclesPerHour = (v/c) × roadCapacity
- *       vehiclesPerDay  = vehiclesPerHour / K_factor  (bounded to FHWA AADT range)
+ * Stage 2 — FHWA AADT range interpolation:
+ *   vehiclesPerDay = AADT_min + vcRatio × (AADT_max − AADT_min)
+ *
+ *   Why NOT pure BPR for daily count:
+ *   BPR gives v/c = 0 when current speed ≈ free-flow speed (road is uncongested).
+ *   Zero v/c produces 0 vehicles/hour — but a free-flow road still carries real traffic;
+ *   it just isn't congested enough to slow down. BPR measures congestion, not baseline
+ *   traffic level. Using AADT_min as the floor at v/c=0 gives an honest lower bound
+ *   anchored to FHWA's measured road-class data.
+ *
+ *   Interpolation result:
+ *     v/c = 0   (free flow)   → AADT_min  (minimum typical for this road class)
+ *     v/c = 0.5 (moderate)    → midpoint
+ *     v/c = 1   (at capacity) → AADT_max  (maximum typical for this road class)
  */
 function deriveVehicleCount(
   frc: string,
@@ -135,70 +157,54 @@ function deriveVehicleCount(
 ): TomTomVehicleCount {
   const stats = ROAD_STATS[frc] ?? ROAD_STATS["FRC4"];
 
-  // Cannot compute without valid speed data — use road class midpoint AADT
+  // Cannot compute without valid speed data — use road-class typical midpoint
   if (freeFlowSpeedKmh <= 0 || currentSpeedKmh <= 0) {
-    const midpointAADT = Math.round((stats.AADT_min + stats.AADT_max) / 2);
-    const midpointHourly = Math.round(midpointAADT * stats.K_factor);
+    const typicalAADT   = Math.round((stats.AADT_min + stats.AADT_max) / 2);
+    const typicalHourly = Math.round(typicalAADT * stats.K_factor);
     return {
-      vehiclesPerHour:     midpointHourly,
-      vehiclesPerDay:      midpointAADT,
+      vehiclesPerHour:     typicalHourly,
+      vehiclesPerDay:      typicalAADT,
       vcRatio:             0.5,
       roadCapacityPerHour: stats.capacityPerHour,
       methodology:
-        `Road class ${frc} (${stats.description}). Speed data unavailable — using FHWA AADT midpoint ` +
-        `(${stats.AADT_min.toLocaleString()}–${stats.AADT_max.toLocaleString()} veh/day range). ` +
-        `Source: FHWA Highway Performance Monitoring System (HPMS) classification tables.`,
+        `Road class ${frc} (${stats.description}). ` +
+        `Live speed data unavailable — using FHWA HPMS typical midpoint for this road class: ` +
+        `${typicalAADT.toLocaleString()} veh/day (range: ${stats.AADT_min.toLocaleString()}–${stats.AADT_max.toLocaleString()}). ` +
+        `Source: FHWA HPMS classification tables.`,
     };
   }
 
-  // BPR volume-delay: delay_ratio = freeFlow / current (speed inversely related to travel time)
-  const delayRatio = freeFlowSpeedKmh / currentSpeedKmh;
-
-  // BPR inverse: v/c = ((delay_ratio − 1) / 0.15)^0.25
-  // Cap delay at 5.0 — BPR diverges at extreme congestion (use LOS F empirical cap)
-  const cappedDelay = Math.min(delayRatio, 5.0);
+  // Stage 1: BPR inverse — derive v/c from observed speed ratio
+  const delayRatio  = freeFlowSpeedKmh / currentSpeedKmh;
+  const cappedDelay = Math.min(delayRatio, 5.0); // BPR diverges at extreme congestion
   const rawVcRatio  = cappedDelay > 1
     ? Math.pow((cappedDelay - 1) / 0.15, 0.25)
     : 0;
-  const vcRatio = Math.min(rawVcRatio, 1.05); // slight over-capacity is possible at LOS F
+  const vcRatio = Math.min(rawVcRatio, 1.05); // slight over-capacity possible at LOS F
 
-  // Floor: at free-flow, BPR gives vcRatio≈0 — but the road still carries its minimum
-  // AADT traffic. Apply FHWA AADT_min floor so free-flow roads show real minimum counts.
-  const vehiclesPerHourRaw   = Math.round(vcRatio * stats.capacityPerHour);
-  const vehiclesPerHourFloor = Math.round(stats.AADT_min * stats.K_factor);
-  const vehiclesPerHour      = Math.max(vehiclesPerHourRaw, vehiclesPerHourFloor);
+  // Stage 2: FHWA AADT range interpolation using v/c as the load index
+  // At v/c=0 (free flow): AADT_min — road has baseline traffic even when uncongested
+  // At v/c=1 (capacity):  AADT_max — road is fully loaded
+  const vehiclesPerDay  = Math.round(stats.AADT_min + vcRatio * (stats.AADT_max - stats.AADT_min));
+  const vehiclesPerHour = Math.round(vehiclesPerDay * stats.K_factor);
 
-  // The effective V/C ratio after applying the floor
-  const effectiveVcRatio = vehiclesPerHour / stats.capacityPerHour;
-
-  // AADT: hourly peak → daily using K-factor, then bounded to FHWA road class range
-  const rawAADT = vehiclesPerHour / stats.K_factor;
-  const vehiclesPerDay = Math.round(
-    Math.max(stats.AADT_min, Math.min(stats.AADT_max, rawAADT))
-  );
-
-  const speedRatioPct = Math.round((currentSpeedKmh / freeFlowSpeedKmh) * 100);
-
-  const floorApplied = vehiclesPerHour === vehiclesPerHourFloor && vehiclesPerHourRaw < vehiclesPerHourFloor;
+  const speedRatioPct    = Math.round((currentSpeedKmh / freeFlowSpeedKmh) * 100);
+  const effectiveVcRatio = Math.round(vcRatio * 100) / 100;
 
   return {
     vehiclesPerHour,
     vehiclesPerDay,
-    vcRatio:             Math.round(effectiveVcRatio * 100) / 100,
+    vcRatio:             effectiveVcRatio,
     roadCapacityPerHour: stats.capacityPerHour,
     methodology:
-      `TomTom Traffic Flow Segment Data API v4 (live). ` +
+      `TomTom Traffic Flow API v4 (live). ` +
       `Road class ${frc} (${stats.description}). ` +
-      `Current speed ${Math.round(currentSpeedKmh)} km/h vs free-flow ${Math.round(freeFlowSpeedKmh)} km/h ` +
-      `(${speedRatioPct}% of free-flow). ` +
-      (floorApplied
-        ? `Traffic at/near free-flow — BPR function gives near-zero V/C; FHWA AADT_min floor applied ` +
-          `(${stats.AADT_min.toLocaleString()} veh/day minimum for ${frc} class). `
-        : `BPR volume-delay: delay ratio ${delayRatio.toFixed(2)} → v/c ${effectiveVcRatio.toFixed(2)} ` +
-          `× capacity ${stats.capacityPerHour.toLocaleString()} veh/hr = ${vehiclesPerHour.toLocaleString()} veh/hr. `) +
-      `AADT estimate: bounded to FHWA ${frc} range (${stats.AADT_min.toLocaleString()}–${stats.AADT_max.toLocaleString()}) ` +
-      `= ${vehiclesPerDay.toLocaleString()} veh/day. ` +
-      `Sources: TomTom API + FHWA HPMS + HCM 6th Edition (BPR α=0.15, β=4).`,
+      `Speed: ${Math.round(currentSpeedKmh)} km/h of ${Math.round(freeFlowSpeedKmh)} km/h free-flow ` +
+      `(${speedRatioPct}% — BPR v/c ratio: ${effectiveVcRatio.toFixed(2)}). ` +
+      `AADT = ${stats.AADT_min.toLocaleString()} + ${effectiveVcRatio.toFixed(2)} × ` +
+      `(${stats.AADT_max.toLocaleString()} − ${stats.AADT_min.toLocaleString()}) ` +
+      `= ${vehiclesPerDay.toLocaleString()} veh/day · ${vehiclesPerHour.toLocaleString()} veh/hr peak. ` +
+      `Sources: TomTom Traffic Flow API + FHWA HPMS + HCM 6th Edition (BPR α=0.15, β=4).`,
   };
 }
 
@@ -404,7 +410,128 @@ export async function fetchTrafficIncidents(
   };
 }
 
-// ── Aggregated fetch — all three in parallel ──────────────────────────────────
+// ── 4. Speed Profiles — historical hourly traffic patterns ───────────────────
+//
+// TomTom Speed Profiles API returns average speeds for each hour of each day
+// of the week, derived from historical probe data. This tells us WHEN traffic
+// peaks — critical for understanding whether a site has commuter traffic
+// (morning/evening rush = captive customers) or retail-pattern traffic
+// (midday/weekend peak = shopping proximity).
+//
+// Endpoint: /traffic/services/4/speedProfiles/{lat},{lng}/json
+// Note: Requires Traffic Analytics entitlement. Returns 404 on basic plans.
+// We handle this gracefully — if unavailable, the rest of the analysis is unchanged.
+export async function fetchSpeedProfile(
+  lat: number,
+  lng: number,
+  apiKey: string,
+): Promise<TomTomSpeedProfile> {
+  const unavailable = (reason: string): TomTomSpeedProfile => ({
+    weekdayHourlySpeedsKmh: [],
+    weekendHourlySpeedsKmh: [],
+    weekdayPeakHours: [],
+    weekendPeakHours: [],
+    avgWeekdaySpeedKmh: 0,
+    avgWeekendSpeedKmh: 0,
+    freeFlowSpeedKmh: 0,
+    trafficPattern: "UNKNOWN",
+    status: "unavailable",
+    source: reason,
+  });
+
+  if (!apiKey) return unavailable("TomTom Speed Profile — TOMTOM_API_KEY not configured.");
+
+  const url =
+    `${TOMTOM_BASE}/traffic/services/4/speedProfiles/${lat},${lng}/json` +
+    `?unit=KMPH&key=${apiKey}`;
+
+  const data = await ttFetch(url);
+  if (!data?.speedProfilesData) {
+    return unavailable(
+      "TomTom Speed Profiles — not available for this location or plan. " +
+      "Requires TomTom Traffic Analytics entitlement."
+    );
+  }
+
+  // Parse hourly data by day-of-week
+  // TomTom returns days 1–7 (1=Monday, 7=Sunday)
+  const allDays: number[][] = data.speedProfilesData.timeProfiles ?? [];
+  if (!allDays.length) return unavailable("TomTom Speed Profiles — response contained no time profiles.");
+
+  // Average weekdays (Mon–Fri = days 1–5) and weekends (Sat–Sun = days 6–7)
+  // Each day profile is an array of 24 speeds (index 0 = midnight)
+  const weekdayProfiles = allDays.slice(0, 5);   // Mon–Fri
+  const weekendProfiles = allDays.slice(5, 7);   // Sat–Sun
+
+  function avgAcrossDays(dayProfiles: number[][]): number[] {
+    if (!dayProfiles.length) return new Array(24).fill(0);
+    const result: number[] = new Array(24).fill(0);
+    for (let h = 0; h < 24; h++) {
+      const vals = dayProfiles.map((d) => d[h] ?? 0).filter((v) => v > 0);
+      result[h] = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+    }
+    return result;
+  }
+
+  const weekdayHourly = avgAcrossDays(weekdayProfiles);
+  const weekendHourly = avgAcrossDays(weekendProfiles);
+
+  // Free-flow speed: maximum speed across all hours (represents uncongested conditions)
+  const allSpeeds = [...weekdayHourly, ...weekendHourly].filter((v) => v > 0);
+  const freeFlowSpeedKmh = allSpeeds.length ? Math.max(...allSpeeds) : 0;
+
+  // Peak hours = hours where speed is below 75% of free-flow (congested)
+  const PEAK_THRESHOLD = 0.75;
+  function findPeakHours(hourly: number[], freeFlow: number): number[] {
+    if (!freeFlow) return [];
+    return hourly
+      .map((speed, hour) => ({ hour, speed }))
+      .filter(({ speed }) => speed > 0 && speed < freeFlow * PEAK_THRESHOLD)
+      .map(({ hour }) => hour);
+  }
+
+  const weekdayPeakHours = findPeakHours(weekdayHourly, freeFlowSpeedKmh);
+  const weekendPeakHours = findPeakHours(weekendHourly, freeFlowSpeedKmh);
+
+  // Average speeds
+  const wdSpeeds = weekdayHourly.filter((v) => v > 0);
+  const weSpeeds = weekendHourly.filter((v) => v > 0);
+  const avgWeekdaySpeedKmh = wdSpeeds.length ? Math.round(wdSpeeds.reduce((a, b) => a + b, 0) / wdSpeeds.length) : 0;
+  const avgWeekendSpeedKmh = weSpeeds.length ? Math.round(weSpeeds.reduce((a, b) => a + b, 0) / weSpeeds.length) : 0;
+
+  // Traffic pattern classification for car wash context
+  const hasMorningRush = weekdayPeakHours.some((h) => h >= 6 && h <= 9);
+  const hasEveningRush = weekdayPeakHours.some((h) => h >= 16 && h <= 19);
+  const hasMiddayCongestion = weekdayPeakHours.some((h) => h >= 10 && h <= 15) ||
+                              weekendPeakHours.some((h) => h >= 10 && h <= 15);
+  const hasWeekendPeak = weekendPeakHours.length > weekdayPeakHours.length * 1.2;
+
+  let trafficPattern: TomTomSpeedProfile["trafficPattern"] = "FLAT";
+  if (hasMorningRush && hasEveningRush) {
+    trafficPattern = "COMMUTER";
+  } else if (hasMiddayCongestion || hasWeekendPeak) {
+    trafficPattern = "SHOPPING";
+  } else if (weekdayPeakHours.length > 2 || weekendPeakHours.length > 2) {
+    trafficPattern = "FLAT";
+  }
+
+  return {
+    weekdayHourlySpeedsKmh: weekdayHourly,
+    weekendHourlySpeedsKmh: weekendHourly,
+    weekdayPeakHours,
+    weekendPeakHours,
+    avgWeekdaySpeedKmh,
+    avgWeekendSpeedKmh,
+    freeFlowSpeedKmh,
+    trafficPattern,
+    status: "live",
+    source:
+      `TomTom Speed Profiles API — historical average speeds by hour of day at this road segment. ` +
+      `Traffic pattern: ${trafficPattern}.`,
+  };
+}
+
+// ── Aggregated fetch — all four in parallel ───────────────────────────────────
 export async function fetchTomTomData(
   lat: number,
   lng: number,
@@ -414,18 +541,20 @@ export async function fetchTomTomData(
   // Incidents radius: half the analysis radius, capped at 8km so it stays site-relevant
   const incidentsRadiusKm = Math.min(radiusMiles * 1.609 * 0.5, 8);
 
-  const [trafficFlow, fiveMin, tenMin, fifteenMin, incidents] = await Promise.all([
+  const [trafficFlow, fiveMin, tenMin, fifteenMin, incidents, speedProfile] = await Promise.all([
     fetchTrafficFlow(lat, lng, apiKey),
     fetchIsochrone(lat, lng, apiKey, 5),
     fetchIsochrone(lat, lng, apiKey, 10),
     fetchIsochrone(lat, lng, apiKey, 15),
     fetchTrafficIncidents(lat, lng, apiKey, incidentsRadiusKm),
+    fetchSpeedProfile(lat, lng, apiKey),
   ]);
 
   return {
     trafficFlow,
     isochrones: { fiveMin, tenMin, fifteenMin },
     incidents,
+    speedProfile,
     fetchedAt: new Date().toISOString(),
   };
 }

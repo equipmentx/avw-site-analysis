@@ -4,10 +4,10 @@ import { useState } from "react";
 import {
   ChevronDown, Users, Clock, Maximize2,
   RotateCcw, Eye, Grid3x3, ArrowRight, CheckCircle,
-  Layers, Zap, Info,
+  Layers, Zap,
 } from "lucide-react";
-import dynamic from "next/dynamic";
 import AerialDiagram from "./AerialDiagram";
+import ImageViewer from "./ImageViewer";
 import {
   CAR_WASH_CONFIGS,
   CONFIG_CATEGORIES,
@@ -15,34 +15,14 @@ import {
   type ConfigCategory,
 } from "@/lib/carwashConfigs";
 
-// Load Scene3D without SSR (Three.js requires browser)
-const Scene3D = dynamic(() => import("./Scene3D"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center">
-      <div className="w-6 h-6 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
-    </div>
-  ),
-});
-
 type ViewMode = "perspective" | "aerial" | "interior" | "spin";
 
-// ── 3D viewer (replaces all prior view modes) ─────────────────────────────────
+// ── Image viewer (real photos per config) ─────────────────────────────────────
 
 function DiagramViewer({ config, mode }: { config: CarWashConfig; mode: ViewMode }) {
-  const hints: Record<ViewMode, string> = {
-    perspective: "Drag to orbit · scroll to zoom",
-    spin:        "Auto-rotating — drag to take control",
-    aerial:      "Top-down view",
-    interior:    "Inside view — drag to look around",
-  };
-
   return (
     <div className="w-full h-full relative">
-      <Scene3D config={config} mode={mode} className="w-full h-full" />
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-slate-500 bg-black/30 px-2 py-1 rounded pointer-events-none select-none">
-        {hints[mode]}
-      </div>
+      <ImageViewer config={config} mode={mode} className="w-full h-full" />
     </div>
   );
 }
@@ -275,11 +255,11 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
             </div>
           </div>
 
-          {/* Perspective hint */}
-          {viewMode === "perspective" && (
+          {/* Spin hint */}
+          {viewMode === "spin" && (
             <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-black/40 rounded-lg px-2 py-1">
-              <Info className="w-3 h-3 text-slate-400" />
-              <span className="text-[10px] text-slate-400">Drag to rotate</span>
+              <RotateCcw className="w-3 h-3 text-slate-400" />
+              <span className="text-[10px] text-slate-400">Drag to pan</span>
             </div>
           )}
         </div>
@@ -312,7 +292,7 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
 
         {/* Source note for specs */}
         <p className="text-slate-500 text-[10px] leading-relaxed">
-          Throughput, lot, and staffing specs are equipment manufacturer benchmarks (Tommy Car Wash Systems, PDQ, Sonny&apos;s Enterprises, ICA).
+          Throughput, lot, and staffing specs are equipment manufacturer benchmarks (Tommy Car Wash Systems, PDQ, Washworld, ICA).
           Investment costs and revenue projections are calculated live in the analysis using your location, budget, and country market data — not shown here.
         </p>
 
