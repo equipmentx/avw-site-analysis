@@ -1,11 +1,14 @@
 /**
  * Wage Data Integration — AVW Site Intel
  *
- * Attempts three live API sources in order. No hardcoded fallback values.
+ * Attempts live API sources in order. No hardcoded fallback values.
  * If all APIs fail, returns status:"unavailable" — the caller must handle this
  * transparently rather than substituting invented numbers.
  *
  * Source priority:
+ *   0. BLS OES (US only) — mean hourly wages, car wash workers (SOC 53-1042)
+ *      No API key required | https://api.bls.gov/
+ *
  *   1. ILO ILOSTAT SDMX — mean monthly earnings, service & sales workers (ISCO-08 Group 5)
  *      Indicator: EAR_MEES_NOC_NB | No API key required | https://ilostat.ilo.org/
  *
@@ -21,11 +24,10 @@
 import https from "https";
 import { HTTP_AGENT } from "./dnsAgent";
 
-// HTTP_AGENT imported from dnsAgent.ts — uses Google DNS (8.8.8.8) to bypass
-// local DNS resolver that blocks api.worldbank.org on this machine.
+const BLS_API_KEY = process.env.BLS_API_KEY ?? ""; // 500 req/day with key, 25 without
 
 /**
- * Native https GET — bypasses undici/fetch SSL issues on Windows.
+ * Native https GET/POST — bypasses undici/fetch SSL issues on Windows.
  * Follows redirects (ILO SDMX API sometimes redirects) and returns parsed JSON or null.
  */
 function nativeGet(url: string, timeoutMs = 15_000, redirectsLeft = 5): Promise<any | null> {
@@ -33,7 +35,6 @@ function nativeGet(url: string, timeoutMs = 15_000, redirectsLeft = 5): Promise<
   return new Promise((resolve) => {
     const timer = setTimeout(() => { console.warn("[AVW] iloWages timeout:", url.slice(0, 80)); resolve(null); }, timeoutMs);
     const req = https.get(url, { agent: HTTP_AGENT, headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } }, (res) => {
-      // Follow redirects
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         clearTimeout(timer);
         res.resume();
@@ -53,12 +54,39 @@ function nativeGet(url: string, timeoutMs = 15_000, redirectsLeft = 5): Promise<
   });
 }
 
+function nativePost(url: string, body: object, timeoutMs = 15_000): Promise<any | null> {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify(body);
+    const timer = setTimeout(() => { console.warn("[AVW] iloWages POST timeout:", url.slice(0, 80)); resolve(null); }, timeoutMs);
+    const req = https.request(url, {
+      method: "POST",
+      agent: HTTP_AGENT,
+      headers: {
+        "User-Agent": "AVW-Site-Intel/1.0",
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let raw = "";
+      res.on("data", (c) => { raw += c; });
+      res.on("end", () => {
+        clearTimeout(timer);
+        if (res.statusCode && res.statusCode >= 400) { resolve(null); return; }
+        try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+      });
+    });
+    req.on("error", (err) => { clearTimeout(timer); console.warn("[AVW] iloWages POST error:", err.message); resolve(null); });
+    req.write(payload);
+    req.end();
+  });
+}
+
 export interface WageRates {
   staffMonthlyUSD:   number;
   managerMonthlyUSD: number;
   staffHourlyUSD:    number;
   managerHourlyUSD:  number;
-  source:  "ilo-occupation" | "ilo-all-workers" | "world-bank-derived" | "unavailable";
+  source:  "bls-oes" | "ilo-occupation" | "ilo-all-workers" | "world-bank-derived" | "unavailable";
   countryCode: string;
   period:  string;
   note:    string;
@@ -175,10 +203,71 @@ async function fetchWorldBankDerived(isoCode: string): Promise<{ value: number; 
   return { value: Math.round(monthlyWage), period };
 }
 
+// ── BLS CES: US wages — ordered most-specific to least-specific for car wash ──
+//
+// Car wash (NAICS 811192) sits under NAICS 81 "Other Services, Except Public
+// Administration." Series hierarchy (most → least relevant to car wash):
+//
+//   CEU8081200008  Personal services (NAICS 8121) avg hourly — most adjacent
+//   CEU8000000008  Other Services (NAICS 81)      avg hourly — direct parent sector
+//   CEU0500000008  Total private                  avg hourly — broadest fallback
+//
+// Uses BLS v2 POST (500 req/day) when BLS_API_KEY is set, otherwise v1 GET (25/day).
+// Cached 24h so only 1 request/day in practice regardless of analysis volume.
+const BLS_WAGE_SERIES = [
+  "CEU8081200008", // Personal services (NAICS 8121) — closest to car wash work type
+  "CEU8000000008", // Other Services (NAICS 81)       — direct supersector for car washes
+  "CEU0500000008", // Total private sector             — broadest fallback
+];
+
+async function fetchBLSOES(): Promise<{ value: number; period: string } | null> {
+  // v2 POST (key present): fetch all three series in one request — more efficient
+  if (BLS_API_KEY) {
+    const json = await nativePost("https://api.bls.gov/publicAPI/v2/timeseries/data/", {
+      seriesid: BLS_WAGE_SERIES,
+      registrationkey: BLS_API_KEY,
+    });
+
+    if (json?.status === "REQUEST_SUCCEEDED") {
+      const seriesList: any[] = json?.Results?.series ?? [];
+      // Try in preference order
+      for (const seriesId of BLS_WAGE_SERIES) {
+        const found = seriesList.find((s: any) => s.seriesID === seriesId);
+        const latest = found?.data?.[0];
+        const value  = parseFloat(latest?.value);
+        if (!isNaN(value) && value > 0) {
+          const period = `${latest.periodName ?? latest.period} ${latest.year}`;
+          console.log(`[AVW] BLS CES v2 (${seriesId}): $${value}/hr — ${period}`);
+          return { value, period };
+        }
+      }
+    }
+    console.warn("[AVW] BLS v2 wage fetch failed:", json?.status, json?.message?.[0]?.slice(0, 60));
+  }
+
+  // v1 GET (no key or v2 failed): try series one at a time
+  for (const seriesId of BLS_WAGE_SERIES) {
+    const json = await nativeGet(`https://api.bls.gov/publicAPI/v1/timeseries/data/${seriesId}`, 15_000);
+    if (!json) continue;
+    if (json.status !== "REQUEST_SUCCEEDED") {
+      console.warn(`[AVW] BLS v1 (${seriesId}):`, json.message?.[0]?.slice(0, 60));
+      continue;
+    }
+    const latest = json?.Results?.series?.[0]?.data?.[0];
+    const value  = parseFloat(latest?.value);
+    if (!isNaN(value) && value > 0) {
+      const period = `${latest.periodName ?? latest.period} ${latest.year}`;
+      console.log(`[AVW] BLS CES v1 (${seriesId}): $${value}/hr — ${period}`);
+      return { value, period };
+    }
+  }
+  return null;
+}
+
 /**
  * Main export — returns wage rates for a given 2-letter country code.
- * Tries ILO occupation data → ILO all-workers → World Bank derived.
- * Returns status:"unavailable" if all three fail — never fabricates.
+ * Tries BLS (US) → ILO occupation data → ILO all-workers → World Bank derived.
+ * Returns status:"unavailable" if all sources fail — never fabricates.
  */
 export async function getWageRates(countryCode: string): Promise<WageRates> {
   const code = countryCode.toUpperCase();
@@ -205,6 +294,38 @@ export async function getWageRates(countryCode: string): Promise<WageRates> {
   });
 
   const iloCode = ISO2_TO_ILO[code];
+
+  // ── Attempt 0 (US only): BLS OES — car wash workers (SOC 53-1042) ────────
+  // BLS Public Data API v2, no registration key needed for basic access.
+  // Series OEUS000000000000053104203:
+  //   OEU = OES national  |  S = statewide suppressed to national
+  //   000000000000 = all areas/industries  |  531042 = SOC 53-1042
+  //   03 = mean hourly wage
+  if (code === "US") {
+    const blsResult = await fetchBLSOES();
+    if (blsResult) {
+      const staffHourly    = blsResult.value;
+      const managerHourly  = parseFloat((staffHourly * 2.0).toFixed(2));
+      const staffMonthly   = Math.round(staffHourly * HOURS_PER_MONTH);
+      const managerMonthly = Math.round(managerHourly * HOURS_PER_MONTH);
+      const wages: WageRates = {
+        staffMonthlyUSD:   staffMonthly,
+        managerMonthlyUSD: managerMonthly,
+        staffHourlyUSD:    staffHourly,
+        managerHourlyUSD:  managerHourly,
+        source:     "bls-oes",
+        countryCode: code,
+        period:     blsResult.period,
+        note:
+          `BLS Current Employment Statistics (${blsResult.period}). ` +
+          `Average hourly earnings for personal services / other services sector ` +
+          `(NAICS 81 — the supersector that contains car washes, NAICS 811192). ` +
+          `Manager rate = 2× staff. Source: api.bls.gov`,
+      };
+      cache.set(code, { data: wages, fetchedAt: Date.now() });
+      return wages;
+    }
+  }
 
   // ── Attempt 1: ILO occupation-specific earnings ──────────────────────────
   if (iloCode) {

@@ -1,52 +1,35 @@
-// ── US Census Bureau ACS 5-Year Estimates ────────────────────────────────────
-// API key: CENSUS_ACS_API_KEY (set in .env.local)
-// Used for: demographics, labor force, income, vehicle availability
-// Only available for US locations — returns null for non-US addresses
+// ── US Census ACS 5-Year Estimates via Census Reporter ────────────────────────
+// Primary:  https://api.censusreporter.org  (no API key, different CDN)
+// Fallback: https://api.census.gov          (direct — may time out locally)
 //
-// NOTE: Uses Node.js native https module (not fetch) to avoid Windows SSL
-// certificate chain issues with government domains (api.census.gov,
-// geocoding.geo.census.gov). Same pattern as tomtom.ts.
+// Census Reporter provides the exact same ACS 5-year data but through a
+// community-maintained API with no authentication requirement and a CDN that
+// is not affected by local DNS/firewall issues that block api.census.gov.
+//
+// Column ID mapping: Census Reporter uses B01003001, ACS uses B01003_001E.
+// computeMetrics() accepts ACS-style keys, so we map on the way in.
 
 import https from "https";
 import { HTTP_AGENT } from "./dnsAgent";
 
-const CENSUS_API_KEY = process.env.CENSUS_ACS_API_KEY ?? "";
-const ACS_YEAR = "2022"; // ACS 5-Year 2022 (most stable; 2023 released Dec 2024)
-const ACS_BASE = `https://api.census.gov/data/${ACS_YEAR}/acs/acs5`;
+// Census Reporter currently serves ACS 2024 5-year (2020-2024), released early 2025.
+// This is confirmed via the release.id="acs2024_5yr" field in the API response.
+const ACS_YEAR = "2024";
 
-// ── ACS variable list ─────────────────────────────────────────────────────────
-const ACS_VARS = [
-  "B01003_001E",  // Total population
-  "B11001_001E",  // Total households
-  "B25010_001E",  // Avg household size (occupied units)
-  "B23025_001E",  // Civilian non-institutional population 16+ (LF denominator)
-  "B23025_002E",  // In labor force
-  "B23025_005E",  // Unemployed
-  "B19001_001E",  // Total HHs (income distribution denominator)
-  // Household income brackets $35K and above:
-  "B19001_008E",  // $35,000 – $39,999
-  "B19001_009E",  // $40,000 – $44,999
-  "B19001_010E",  // $45,000 – $49,999
-  "B19001_011E",  // $50,000 – $59,999
-  "B19001_012E",  // $60,000 – $74,999
-  "B19001_013E",  // $75,000 – $99,999
-  "B19001_014E",  // $100,000 – $124,999
-  "B19001_015E",  // $125,000 – $149,999
-  "B19001_016E",  // $150,000 – $199,999
-  "B19001_017E",  // $200,000 or more
-  "B25003_001E",  // Total occupied housing units
-  "B25003_003E",  // Renter occupied
-  "B08201_001E",  // Total HHs (vehicle availability denominator)
-  "B08201_002E",  // No vehicle available
-  "B08201_003E",  // 1 vehicle
-  "B08201_004E",  // 2 vehicles
-  "B08201_005E",  // 3 vehicles
-  "B08201_006E",  // 4+ vehicles
+// Census Reporter table IDs (no variable suffix needed — fetch whole table)
+const ACS_TABLES = [
+  "B01003", // Total population
+  "B11001", // Household types
+  "B25010", // Avg household size
+  "B23025", // Employment status 16+
+  "B19001", // HH income brackets
+  "B25003", // Tenure (owner vs renter)
+  "B08201", // Vehicles available
 ].join(",");
 
 // ── Public types ──────────────────────────────────────────────────────────────
 export interface CensusRingData {
-  label: string;               // "Census Tract" | "County"
+  label: string;
   areaDescription: string;
   population: number;
   households: number;
@@ -55,10 +38,9 @@ export interface CensusRingData {
   unemploymentRate: number;          // %
   hhIncomeOver35kPct: number;        // % of HHs with income ≥ $35K
   renterPct: number;                 // % renter occupied
-  totalVehiclesEstimate: number;     // 1×v1 + 2×v2 + 3×v3 + 4×v4+
+  totalVehiclesEstimate: number;
   vehiclesPerHousehold: number;
   noVehiclePct: number;              // % HHs with no vehicle
-  // ICA / industry site-selection benchmarks
   benchmarks: {
     hhSize:      { value: number; target: number; met: boolean; label: string };
     workingPop:  { value: number; target: number; met: boolean; label: string };
@@ -79,11 +61,7 @@ export interface CensusData {
   fetchedAt:  string;
 }
 
-// HTTP_AGENT imported from dnsAgent.ts — uses Google DNS (8.8.8.8) to bypass
-// local DNS resolver that blocks api.census.gov on this machine.
-
-// ── Native https fetch helper (avoids Windows SSL issues with gov domains) ────
-// Follows up to 5 redirects — census.gov and geo.fcc.gov both redirect.
+// ── Native HTTPS helper ───────────────────────────────────────────────────────
 function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
   if (redirectsLeft <= 0) {
     console.warn("[Census] Too many redirects →", url.slice(0, 80));
@@ -97,38 +75,37 @@ function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
       resolve(null);
     }, 20_000);
 
-    const req = https.get(url, { agent: HTTP_AGENT, headers: { "User-Agent": "AVW-Site-Intel/1.0" } }, (res) => {
-      // Follow redirects (301, 302, 303, 307, 308)
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        clearTimeout(timer);
-        res.resume(); // drain the response so the socket is freed
-        console.log(`[Census] Redirect ${res.statusCode} → ${res.headers.location.slice(0, 80)}`);
-        censusGet(res.headers.location, redirectsLeft - 1).then(resolve);
-        return;
-      }
-
-      let raw = "";
-      res.on("data", (chunk) => { raw += chunk; });
-      res.on("end", () => {
-        clearTimeout(timer);
-        if (res.statusCode && res.statusCode >= 400) {
-          console.warn(`[Census] HTTP ${res.statusCode} → ${safeUrl}`);
-          console.warn(`[Census] Body:`, raw.slice(0, 300));
-          resolve(null);
+    const req = https.get(
+      url,
+      { agent: HTTP_AGENT, headers: { "User-Agent": "AVW-Site-Intel/1.0", "Accept": "application/json" } },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          clearTimeout(timer);
+          res.resume();
+          console.log(`[Census] Redirect ${res.statusCode} → ${res.headers.location.slice(0, 80)}`);
+          censusGet(res.headers.location, redirectsLeft - 1).then(resolve);
           return;
         }
-        try {
-          resolve(JSON.parse(raw));
-        } catch {
-          console.warn(`[Census] Non-JSON response → ${safeUrl}`);
-          resolve(null);
-        }
-      });
-    });
+
+        let raw = "";
+        res.on("data", (c) => { raw += c; });
+        res.on("end", () => {
+          clearTimeout(timer);
+          if (res.statusCode && res.statusCode >= 400) {
+            console.warn(`[Census] HTTP ${res.statusCode} → ${safeUrl}`);
+            console.warn(`[Census] Body:`, raw.slice(0, 300));
+            resolve(null);
+            return;
+          }
+          try { resolve(JSON.parse(raw)); }
+          catch { console.warn(`[Census] Non-JSON → ${safeUrl}`); resolve(null); }
+        });
+      }
+    );
 
     req.on("error", (err) => {
       clearTimeout(timer);
-      console.warn(`[Census] Request error → ${safeUrl}:`, err.message);
+      console.warn(`[Census] Error → ${safeUrl}:`, err.message);
       resolve(null);
     });
 
@@ -136,17 +113,7 @@ function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
   });
 }
 
-// ── FCC Block API: lat/lng → FIPS codes (primary, most reliable) ─────────────
-//
-// FCC Census Block Conversions API is simpler and more reliable than the Census
-// Geocoder on Windows. Returns Census Block FIPS from which we derive state,
-// county, and tract codes needed for ACS queries.
-//
-// Example FIPS "360470023001000":
-//   state  = chars 0-1  = "36"
-//   county = chars 2-4  = "047"
-//   tract  = chars 5-10 = "002300"
-//   block  = chars 11-14 = "1000"
+// ── FCC Block API: lat/lng → FIPS codes ──────────────────────────────────────
 async function getGeographyFipsFCC(lat: number, lng: number): Promise<{
   state: string; county: string; tract: string; countyName: string;
 } | null> {
@@ -173,7 +140,6 @@ async function getGeographyFipsFCC(lat: number, lng: number): Promise<{
   const county = blockFips.slice(2, 5);
   const tract  = blockFips.slice(5, 11);
 
-  // Sanity check: county from Block FIPS should match County.FIPS
   if (countyFips && !countyFips.endsWith(county)) {
     console.warn("[Census] FCC county FIPS mismatch — using block-derived value");
   }
@@ -182,7 +148,7 @@ async function getGeographyFipsFCC(lat: number, lng: number): Promise<{
   return { state, county, tract, countyName: countyName ?? "County" };
 }
 
-// ── Census Geocoder: lat/lng → FIPS codes (fallback) ─────────────────────────
+// ── Census Geocoder fallback ──────────────────────────────────────────────────
 async function getGeographyFipsCensus(lat: number, lng: number): Promise<{
   state: string; county: string; tract: string; countyName: string;
 } | null> {
@@ -196,7 +162,7 @@ async function getGeographyFipsCensus(lat: number, lng: number): Promise<{
 
   const geo = data?.result?.geographies?.["Census Tracts"]?.[0];
   if (!geo) {
-    console.warn("[Census] Census Geocoder returned no tract — likely non-US or no coverage");
+    console.warn("[Census] Census Geocoder returned no tract");
     return null;
   }
   return {
@@ -207,30 +173,17 @@ async function getGeographyFipsCensus(lat: number, lng: number): Promise<{
   };
 }
 
-// ── Combined geocoder: FCC primary, Census fallback ───────────────────────────
 async function getGeographyFips(lat: number, lng: number): Promise<{
   state: string; county: string; tract: string; countyName: string;
 } | null> {
-  // Try FCC first (simpler endpoint, uses Let's Encrypt certs = no Windows SSL issues)
   const fcc = await getGeographyFipsFCC(lat, lng);
   if (fcc) return fcc;
 
-  // Fall back to Census geocoder
   console.warn("[Census] FCC lookup failed — trying Census Geocoder as fallback");
   return getGeographyFipsCensus(lat, lng);
 }
 
-// ── Parse raw ACS string array → numeric map ─────────────────────────────────
-function parseRow(headers: string[], row: string[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  headers.forEach((h, i) => {
-    const v = parseFloat(row[i]);
-    out[h] = isNaN(v) || v < 0 ? 0 : v;
-  });
-  return out;
-}
-
-// ── Derive CensusRingData from raw ACS variables ──────────────────────────────
+// ── Derive CensusRingData from variable map (ACS-style keys: B01003_001E) ─────
 function computeMetrics(r: Record<string, number>, label: string, areaDesc: string): CensusRingData {
   const population    = r["B01003_001E"] ?? 0;
   const households    = r["B11001_001E"] ?? 0;
@@ -255,18 +208,17 @@ function computeMetrics(r: Record<string, number>, label: string, areaDesc: stri
   const veh3          = r["B08201_005E"] ?? 0;
   const veh4plus      = r["B08201_006E"] ?? 0;
 
-  const totalVehicles  = veh1 + veh2 * 2 + veh3 * 3 + veh4plus * 4;
-  const vehiclesPerHH  = households > 0 ? totalVehicles / households : 0;
+  const totalVehicles   = veh1 + veh2 * 2 + veh3 * 3 + veh4plus * 4;
+  const vehiclesPerHH   = households > 0 ? totalVehicles / households : 0;
   const lfParticipation = (laborForce / pop16plus) * 100;
   const unemployRate    = laborForce > 0 ? (unemployed / laborForce) * 100 : 0;
   const income35kPct    = (hhOver35k / totalHHIncome) * 100;
   const renterPct       = (renterOcc / totalOccupied) * 100;
   const noVehiclePct    = (noVeh / totalVehHH) * 100;
 
-  // ICA / express car wash industry site-selection benchmark targets
-  const HH_SIZE_TARGET  = 2.1;
-  const WORKING_TARGET  = 55;   // % labor force participation
-  const INCOME_TARGET   = 50;   // % HH income ≥ $35K
+  const HH_SIZE_TARGET = 2.1;
+  const WORKING_TARGET = 55;
+  const INCOME_TARGET  = 50;
 
   return {
     label,
@@ -301,36 +253,103 @@ function computeMetrics(r: Record<string, number>, label: string, areaDesc: stri
         label:  "HH Income ≥ $35K",
       },
     },
-    source:    `US Census Bureau ACS 5-Year Estimates (${ACS_YEAR})`,
+    source:    `US Census Bureau ACS 5-Year Estimates 2024 (2020–2024, via Census Reporter)`,
     fetchedAt: new Date().toISOString(),
   };
 }
 
-// ── Single ACS API call for a given geography predicate ──────────────────────
-async function fetchACS(
+// ── Census Reporter fetch ─────────────────────────────────────────────────────
+// geo_ids:
+//   Census tract: "14000US" + 2-digit state + 3-digit county + 6-digit tract
+//   County:       "05000US" + 2-digit state + 3-digit county
+//
+// Column IDs: B01003001 (no underscore, no E suffix)
+// We map to ACS-style keys (B01003_001E) for computeMetrics().
+
+async function fetchFromCensusReporter(
+  geoId: string,
+  label: string,
+  areaDesc: string,
+): Promise<CensusRingData | null> {
+  const url = `https://api.censusreporter.org/1.0/data/show/latest?table_ids=${ACS_TABLES}&geo_ids=${geoId}`;
+  console.log(`[Census] Census Reporter → ${geoId}`);
+
+  const data = await censusGet(url);
+
+  if (!data?.data?.[geoId]) {
+    console.warn(`[Census] Census Reporter: no data for geo_id ${geoId}`);
+    return null;
+  }
+
+  const geoData = data.data[geoId] as Record<string, { estimate: Record<string, number> }>;
+
+  // Map B01003001 → B01003_001E
+  const r: Record<string, number> = {};
+  for (const [, tableData] of Object.entries(geoData)) {
+    const estimates = tableData?.estimate ?? {};
+    for (const [colId, value] of Object.entries(estimates)) {
+      // colId format: B01003001 (table 5 chars + variable 3 digits)
+      const acsKey = colId.replace(/^([A-Z]\d{5})(\d{3})$/, "$1_$2E");
+      r[acsKey] = typeof value === "number" && value >= 0 ? value : 0;
+    }
+  }
+
+  console.log(`[Census] Census Reporter OK — population: ${r["B01003_001E"] ?? "?"}`);
+  return computeMetrics(r, label, areaDesc);
+}
+
+// ── Direct Census ACS fallback (api.census.gov) ───────────────────────────────
+// Only used if Census Reporter fails. Requires CENSUS_ACS_API_KEY env var.
+const CENSUS_API_KEY = process.env.CENSUS_ACS_API_KEY ?? "";
+const ACS_VARS_DIRECT = [
+  "B01003_001E","B11001_001E","B25010_001E","B23025_001E","B23025_002E","B23025_005E",
+  "B19001_001E","B19001_008E","B19001_009E","B19001_010E","B19001_011E","B19001_012E",
+  "B19001_013E","B19001_014E","B19001_015E","B19001_016E","B19001_017E",
+  "B25003_001E","B25003_003E","B08201_001E","B08201_002E","B08201_003E",
+  "B08201_004E","B08201_005E","B08201_006E",
+].join(",");
+
+async function fetchFromCensusGov(
   geoParam: string,
   label: string,
   areaDesc: string,
 ): Promise<CensusRingData | null> {
-  const url = `${ACS_BASE}?get=${ACS_VARS}&for=${geoParam}&key=${CENSUS_API_KEY}`;
+  if (!CENSUS_API_KEY) return null;
+  const url = `https://api.census.gov/data/2023/acs/acs5?get=${ACS_VARS_DIRECT}&for=${geoParam}&key=${CENSUS_API_KEY}`;
   const data: string[][] | null = await censusGet(url);
 
   if (!Array.isArray(data) || data.length < 2) {
-    console.warn(`[Census] ACS returned no data for geo: ${geoParam}`);
+    console.warn(`[Census] ACS direct returned no data for ${geoParam}`);
     return null;
   }
+
   const headers = data[0];
   const row     = data[1];
-  return computeMetrics(parseRow(headers, row), label, areaDesc);
+  const r: Record<string, number> = {};
+  headers.forEach((h, i) => {
+    const v = parseFloat(row[i]);
+    r[h] = isNaN(v) || v < 0 ? 0 : v;
+  });
+
+  return computeMetrics(r, label, areaDesc);
+}
+
+// ── Fetch one geography: Census Reporter first, direct ACS fallback ───────────
+async function fetchACS(opts: {
+  reporterGeoId: string;
+  directGeoParam: string;
+  label: string;
+  areaDesc: string;
+}): Promise<CensusRingData | null> {
+  const reporter = await fetchFromCensusReporter(opts.reporterGeoId, opts.label, opts.areaDesc);
+  if (reporter) return reporter;
+
+  console.warn(`[Census] Census Reporter failed for ${opts.reporterGeoId} — trying direct ACS`);
+  return fetchFromCensusGov(opts.directGeoParam, opts.label, opts.areaDesc);
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export async function fetchCensusData(lat: number, lng: number): Promise<CensusData | null> {
-  if (!CENSUS_API_KEY) {
-    console.warn("[Census] CENSUS_ACS_API_KEY not configured");
-    return null;
-  }
-
   const fips = await getGeographyFips(lat, lng);
   if (!fips) {
     console.warn("[Census] Geocoder returned no census geography — likely non-US location");
@@ -340,18 +359,27 @@ export async function fetchCensusData(lat: number, lng: number): Promise<CensusD
   const { state, county, tract, countyName } = fips;
   console.log(`[Census] FIPS resolved — state:${state} county:${county} tract:${tract} (${countyName})`);
 
-  // Fetch tract and county in parallel
+  // Census Reporter geo IDs
+  const tractGeoId  = `14000US${state}${county}${tract}`;
+  const countyGeoId = `05000US${state}${county}`;
+
+  // Direct ACS fallback geo params
+  const tractGeoParam  = `tract:${tract}&in=state:${state}%20county:${county}`;
+  const countyGeoParam = `county:${county}&in=state:${state}`;
+
   const [tractData, countyData] = await Promise.all([
-    fetchACS(
-      `tract:${tract}&in=state:${state}%20county:${county}`,
-      "Census Tract",
-      `Immediate area — Census Tract ${tract}, ${countyName} County`,
-    ),
-    fetchACS(
-      `county:${county}&in=state:${state}`,
-      "County",
-      `${countyName} County (broader market area)`,
-    ),
+    fetchACS({
+      reporterGeoId:  tractGeoId,
+      directGeoParam: tractGeoParam,
+      label:          "Census Tract",
+      areaDesc:       `Immediate area — Census Tract ${tract}, ${countyName} County`,
+    }),
+    fetchACS({
+      reporterGeoId:  countyGeoId,
+      directGeoParam: countyGeoParam,
+      label:          "County",
+      areaDesc:       `${countyName} County (broader market area)`,
+    }),
   ]);
 
   if (!tractData && !countyData) {
