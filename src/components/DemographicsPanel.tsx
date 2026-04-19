@@ -134,7 +134,7 @@ export default function DemographicsPanel({ census }: Props) {
       <div className="flex items-start gap-2 bg-blue-500/8 border border-blue-500/20 rounded-xl px-3 py-2.5">
         <span className="text-blue-400 text-sm mt-0.5">🏛️</span>
         <p className="text-slate-300 text-xs leading-relaxed">
-          <span className="text-blue-300 font-semibold">US Census Bureau ACS 5-Year Estimates (2022)</span>
+          <span className="text-blue-300 font-semibold">US Census Bureau ACS 5-Year Estimates 2024 (2020–2024)</span>
           {" "}— Census Tract data covers the immediate ~1–4 sq mile area around the site.
           County data covers the broader market. Benchmarks follow ICA express car wash site-selection
           criteria: HH size ≥ 2.1, working population ≥ 55%, and HH income ≥ $35K for ≥ 50% of households.
@@ -150,7 +150,7 @@ export default function DemographicsPanel({ census }: Props) {
           <StatCard
             label="County Population"
             value={county.population.toLocaleString()}
-            sub="ACS 2022 estimate"
+            sub="ACS 2024 estimate"
           />
           <StatCard
             label="County Households"

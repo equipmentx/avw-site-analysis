@@ -275,6 +275,8 @@ export function runFinancialModel(
   estimatedDailyTraffic: number,
   investmentBudget?: number,
   wageRates?: WageRates,
+  actualLandCostUSD?: number | null,                               // real ATTOM parcel land value — overrides the 23.9% ratio
+  actualLandCostSource?: FinancialAssumptions["landCostSource"],   // which ATTOM field it came from
 ): FinancialProjection {
 
   const budget = investmentBudget && investmentBudget > 0 ? investmentBudget : 0;
@@ -285,9 +287,6 @@ export function runFinancialModel(
   const staffHourly   = wagesAvailable ? wageRates!.staffHourlyUSD   : LABOR.fullTime1.hourlyRate;
   const managerHourly = wagesAvailable ? wageRates!.managerHourlyUSD : LABOR.siteManager.hourlyRate;
 
-  // Determine what the user can build with their budget
-  const format = getCarWashFormat(budget);
-
   // ── CapEx breakdown ─────────────────────────────────────────────────────────
   // The user's budget IS the Total Project Cost.
   // We split it using the same proportions as the Excel baseline:
@@ -296,11 +295,22 @@ export function runFinancialModel(
   //   Construction  29.5%  ($1,080K / $3,663K)
   //   Fees + misc   13.8%  ($250K + $150K + contingency / $3,663K)
   // 2025 midpoint: MMCG / Motor City Wash Works data — express tunnel $3.5M-$6M suburban
-  const totalBase         = budget > 0 ? budget : 4_500_000;
-  const landCost          = Math.round(totalBase * 0.239);
+  const totalBase = budget > 0 ? budget : 4_500_000;
+
+  // Determine format: if no budget given, use totalBase ($4.5M default) so projections
+  // are always computed. Budget=0 previously caused format.feasible=false → zeroed graphs.
+  const format = getCarWashFormat(budget > 0 ? budget : totalBase);
+
+  // Use real ATTOM parcel land value when available; fall back to Pro Forma ratio (23.9%)
+  // This keeps the financial model consistent with the Investment Suggestion panel land line item
+  const useRealLand       = actualLandCostUSD != null && actualLandCostUSD > 0;
+  const landCost          = useRealLand ? Math.round(actualLandCostUSD!) : Math.round(totalBase * 0.239);
+  const resolvedLandSource: FinancialAssumptions["landCostSource"] =
+    actualLandCostSource && useRealLand ? actualLandCostSource : "pro-forma-ratio";
+
   const equipmentCost     = Math.round(totalBase * 0.328);
   const constructionCost  = Math.round(totalBase * 0.295);
-  const feesCost          = totalBase - landCost - equipmentCost - constructionCost;
+  const feesCost          = totalBase - Math.round(totalBase * 0.239) - equipmentCost - constructionCost;
   const contingency       = Math.round(constructionCost * 0.10);
   const totalProjectCost  = totalBase + contingency;
 
@@ -373,6 +383,7 @@ export function runFinancialModel(
     avgRevenuePerCar:  format.avgRevPerCar,
     totalCapex:        totalProjectCost,
     landCost,
+    landCostSource:    resolvedLandSource,
     equipmentCost,
     constructionCost,
     interestRate:      FINANCING.annualInterest,

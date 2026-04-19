@@ -292,6 +292,8 @@ function buildInvestmentSuggestion(
   trafficSignals: TrafficSignals,
   ppi:    PPIResult | null,
   parcel: RegridParcelData | ATTOMParcelData | null,
+  sharedLandCost?: number | null,
+  sharedLandSource?: import("@/lib/types").FinancialAssumptions["landCostSource"],
 ): InvestmentSuggestion {
   const country    = getCountry(countryCode);
   const multiplier = country.multiplier;
@@ -311,16 +313,9 @@ function buildInvestmentSuggestion(
   // ATTOM gives us the county assessor's market value for this specific parcel.
   // We prefer: lastSalePrice > parcelMarketValueUSD > assessedTotalUSD > pro forma estimate.
   // A 20% premium over assessor value is typical for acquisition (negotiation buffer).
-  const parcelLandValue =
-    parcel?.status === "live"
-      ? (parcel.lastSalePrice
-          ? Math.round(parcel.lastSalePrice * 1.15)     // last sale + 15% market appreciation
-          : parcel.parcelMarketValueUSD
-          ? Math.round(parcel.parcelMarketValueUSD * 1.10)
-          : parcel.assessedLandUSD
-          ? Math.round(parcel.assessedLandUSD * 1.20)   // assessed typically 80% of market
-          : null)
-      : null;
+  // Use the shared land cost already computed in the route handler — ensures both
+  // the Investment Suggestion panel and Financial Model always show the same land figure.
+  const parcelLandValue = sharedLandCost ?? null;
 
   // ── US baseline — 2024-2025 industry benchmarks ──────────────────────────
   // Source: MMCG Invest / Motor City Wash Works 2024 project cost data.
@@ -373,7 +368,13 @@ function buildInvestmentSuggestion(
       "Cost breakdown based on 2024-2025 US express car wash project cost benchmarks (MMCG Invest / Motor City Wash Works 2024 data). " +
       "2025 midpoints: Land ~$1.1M · Equipment ~$1.32M · Construction ~$1.44M · Fees & Contingency ~$400K. " +
       (parcelLandValue
-        ? `Land cost from live ATTOM parcel data (county assessor record) — actual market-based figure for this specific parcel. `
+        ? sharedLandSource === "attom-sale"
+          ? `Land cost from live ATTOM last-sale price (+ 15% market appreciation) for this parcel. `
+          : sharedLandSource === "attom-market"
+          ? `Land cost from live ATTOM assessor market value (+ 10% acquisition buffer) for this parcel. `
+          : sharedLandSource === "attom-assessed"
+          ? `Land cost from live ATTOM assessed land value (+ 20% to reflect market) for this parcel. `
+          : `Land cost estimated from ATTOM AVM whole-property estimate × 30% commercial land ratio. `
         : "Land cost estimated from pro forma baseline + regional index (ATTOM parcel data unavailable or non-US location). ") +
       (ppi
         ? `Construction & equipment inflation-adjusted via live BLS CPI-U (CUUR0000SA0, ${ppi.currentPeriod}): ` +
@@ -397,10 +398,10 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Radius configuration ─────────────────────────────────────────────────
-    // User-set radius in miles (5–70). Google Places nearbysearch is capped at 50,000m (~31 mi)
-    // beyond which the API silently clamps. We use the full radius for map display.
-    const radiusMiles = Math.max(5, Math.min(70, parseFloat(radiusParam) || 5));
-    const radiusMeters = Math.min(Math.round(radiusMiles * 1609.34), 50_000); // API hard limit
+    // Google Places nearbysearch hard cap: 50,000m ≈ 31.07 miles.
+    // Requests beyond this are silently clamped by the API, so we enforce 31 mi max here.
+    const radiusMiles = Math.max(5, Math.min(31, parseFloat(radiusParam) || 5));
+    const radiusMeters = Math.round(radiusMiles * 1609.34); // ≤ 50,000m — within API limit
     const displayRadiusMiles = radiusMiles; // kept for response — used for map circle
 
     // Traffic signal searches: 40% of competitor radius, capped at 40km
@@ -479,14 +480,38 @@ export async function POST(req: NextRequest) {
     // ── Vehicle count — TomTom is the primary source ─────────────────────────
     // TomTom Flow Segment Data gives live road speed → BPR function → AADT.
     // This is the industry-standard approach (HCM 6th Ed.), not estimation.
-    const tomtomVehiclesPerDay = tomtomData.trafficFlow.vehicleCount.vehiclesPerDay;
+    //
+    // Proximity check: if the nearest TomTom road segment is > 1.5 miles from
+    // the queried coordinates, it is likely sampling a different road entirely.
+    // In that case we discard the TomTom count and fall back to the density proxy
+    // to avoid inflated scores for rural/off-road locations.
+    const rawTomtomVPD       = tomtomData.trafficFlow.vehicleCount.vehiclesPerDay;
+    const segDistMiles       = tomtomData.trafficFlow.roadSegmentDistanceMiles ?? 0;
+    const segTooFar          = segDistMiles > 1.5;
+
+    // If segment is between 0.5–1.5 miles away, apply a confidence damping factor
+    const dampFactor =
+      segDistMiles > 1.5 ? 0 :
+      segDistMiles > 0.5 ? Math.max(0.25, 1 - (segDistMiles - 0.5) * 0.75) :
+      1.0;
+
+    const tomtomVehiclesPerDay = rawTomtomVPD > 0 && !segTooFar
+      ? Math.round(rawTomtomVPD * dampFactor)
+      : 0;
+
     const estimatedDailyTraffic = tomtomVehiclesPerDay > 0
       ? tomtomVehiclesPerDay
       : gasStations.length * 2_000 + grocery.length * 1_000;
 
-    const trafficEstimationMethod = tomtomVehiclesPerDay > 0
-      ? tomtomData.trafficFlow.vehicleCount.methodology
-      : estimatedDailyTraffic > 0
+    const segWarn = tomtomData.trafficFlow.segmentWarning;
+    const trafficEstimationMethod =
+      tomtomVehiclesPerDay > 0 && dampFactor < 1.0
+        ? `${tomtomData.trafficFlow.vehicleCount.methodology} ⚠️ Confidence adjusted: TomTom segment is ${segDistMiles.toFixed(1)} miles from site (${Math.round(dampFactor * 100)}% weight applied).`
+        : tomtomVehiclesPerDay > 0
+        ? tomtomData.trafficFlow.vehicleCount.methodology
+        : segTooFar && rawTomtomVPD > 0
+        ? `TomTom segment rejected — nearest road is ${segDistMiles.toFixed(1)} miles from this location (likely a different road). Falling back to density proxy. ${segWarn ?? ""}`
+        : estimatedDailyTraffic > 0
         ? `TomTom data unavailable — surrogate density estimate from ${gasStations.length} gas station(s) and ${grocery.length} grocery store(s) within ${(radiusMiles * 0.5).toFixed(1)} miles. Configure TOMTOM_API_KEY for accurate vehicle counts. THIS IS AN APPROXIMATION ONLY.`
         : `Vehicle count unavailable — TomTom API key not configured and no traffic-proxy anchors (gas stations / grocery stores) were found near this location. Financial projections cannot be generated without a traffic count.`;
 
@@ -509,9 +534,34 @@ export async function POST(req: NextRequest) {
       }),
     };
 
+    // ── ATTOM land value — shared between financial model and investment suggestion ──
+    // Both panels must show the same land cost figure. We derive it once here.
+    const attomParcel     = parcelData?.status === "live" ? parcelData : null;
+    const attomAvm        = (attomParcel as ATTOMParcelData)?.avmEstimateUSD ?? null;
+    const sharedLandCostUSD: number | null =
+      attomParcel?.lastSalePrice
+        ? Math.round(attomParcel.lastSalePrice * 1.15)
+        : attomParcel?.parcelMarketValueUSD
+        ? Math.round(attomParcel.parcelMarketValueUSD * 1.10)
+        : attomParcel?.assessedLandUSD
+        ? Math.round(attomParcel.assessedLandUSD * 1.20)
+        : attomAvm
+        ? Math.round(attomAvm * 0.30)
+        : null;
+
+    const sharedLandSource: import("@/lib/types").FinancialAssumptions["landCostSource"] =
+      attomParcel?.lastSalePrice     ? "attom-sale"
+      : attomParcel?.parcelMarketValueUSD ? "attom-market"
+      : attomParcel?.assessedLandUSD     ? "attom-assessed"
+      : attomAvm                          ? "attom-avm"
+      : "pro-forma-ratio";
+
     // Financial model — budget is optional; pass 0 if not provided
     const investmentBudget = budget ? parseFloat(budget) : 0;
-    const financial = runFinancialModel(estimatedDailyTraffic, investmentBudget, wageRates);
+    const financial = runFinancialModel(
+      estimatedDailyTraffic, investmentBudget, wageRates,
+      sharedLandCostUSD, sharedLandSource,
+    );
     const financialViable = financial.year1EBITDA > 0;
 
     // Scoring
@@ -522,7 +572,9 @@ export async function POST(req: NextRequest) {
     const recommendations      = buildRecommendations(score, reviewInsights);
     const investmentSuggestion = buildInvestmentSuggestion(
       countryCode, city, trafficSignals, constructionPPI,
-      parcelData?.status === "live" ? parcelData : null,
+      attomParcel,
+      sharedLandCostUSD,
+      sharedLandSource,
     );
 
     const result: SiteAnalysisResult = {
@@ -619,15 +671,13 @@ export async function POST(req: NextRequest) {
             : "Not available — TOMTOM_API_KEY not configured. Vehicle count will be a density proxy only.",
         demographics:
           censusData?.status === "live"
-            ? `US Census Bureau ACS 5-Year Estimates (2022). ` +
+            ? `US Census Bureau ACS 5-Year Estimates 2024 (2020–2024), via Census Reporter. ` +
               `Census Tract ${censusData.tractFips} and ${censusData.countyName} County data. ` +
               `Variables: B01003 (population), B23025 (labor force), B19001 (income distribution), ` +
               `B25003 (tenure), B08201 (vehicle availability), B25010 (household size). ` +
-              `Source: api.census.gov`
+              `Primary source: api.censusreporter.org · Fallback: api.census.gov`
             : countryCode === "US"
-            ? CENSUS_API_KEY
-              ? "Census ACS fetch failed — coordinates may be outside covered area or API error."
-              : "Not available — CENSUS_ACS_API_KEY not configured."
+            ? "Census ACS data unavailable — Census Reporter or direct ACS fetch failed. Check server logs for details."
             : `Census ACS not available for ${countryCode} — US only.`,
       },
     };

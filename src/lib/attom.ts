@@ -35,7 +35,13 @@ import { HTTP_AGENT } from "./dnsAgent";
 import type { RegridParcelData } from "./types";
 
 const ATTOM_BASE = "https://api.gateway.attomdata.com/propertyapi/v1.0.0";
-const TIMEOUT_MS = 20_000;
+// ATTOM snapshot endpoint takes 20–30s on first call — use a generous timeout
+const SNAPSHOT_TIMEOUT_MS = 40_000;
+// Detail/AVM/history/events endpoints should respond in <3s on a good network.
+// Use 15s so we fail fast when they're blocked, without being too aggressive.
+const DETAIL_TIMEOUT_MS = 15_000;
+// Legacy alias — kept so the helper default still works
+const TIMEOUT_MS = SNAPSHOT_TIMEOUT_MS;
 
 const US_BOUNDS = { minLat: 24.0, maxLat: 71.5, minLng: -180, maxLng: -66 };
 
@@ -47,7 +53,7 @@ function isInUS(lat: number, lng: number): boolean {
 }
 
 // ── HTTP helper — follows redirects ─────────────────────────────────────────
-function attomGet(path: string, apiKey: string, redirectsLeft = 5): Promise<any | null> {
+function attomGet(path: string, apiKey: string, redirectsLeft = 5, timeoutMs = TIMEOUT_MS): Promise<any | null> {
   if (redirectsLeft <= 0) return Promise.resolve(null);
 
   const fullUrl = `${ATTOM_BASE}${path}`;
@@ -63,9 +69,9 @@ function attomGet(path: string, apiKey: string, redirectsLeft = 5): Promise<any 
     };
 
     const timer = setTimeout(() => {
-      console.warn("[AVW] ATTOM timeout →", urlObj.pathname);
+      console.warn(`[AVW] ATTOM timeout (${Math.round(timeoutMs / 1000)}s) →`, urlObj.pathname);
       resolve(null);
-    }, TIMEOUT_MS);
+    }, timeoutMs);
 
     const req = https.request(options, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
@@ -74,7 +80,7 @@ function attomGet(path: string, apiKey: string, redirectsLeft = 5): Promise<any 
         // Rebuild path from redirect location
         try {
           const redir = new URL(res.headers.location);
-          attomGet(redir.pathname + redir.search, apiKey, redirectsLeft - 1).then(resolve);
+          attomGet(redir.pathname + redir.search, apiKey, redirectsLeft - 1, timeoutMs).then(resolve);
         } catch { resolve(null); }
         return;
       }
@@ -255,11 +261,13 @@ export async function fetchATTOMParcel(
   console.log(`[AVW] ATTOM hit → attomId: ${attomId}`);
 
   // ── Step 2: all endpoints in parallel ────────────────────────────────────
+  // Use DETAIL_TIMEOUT_MS (15s) for these — they respond in <3s on a healthy
+  // network, so 15s is generous while still failing fast when blocked.
   const [detailJson, avmJson, historyJson, eventsJson] = await Promise.all([
-    attomGet(`/property/detail?attomid=${attomId}`,        apiKey),
-    attomGet(`/avm/detail?attomid=${attomId}`,             apiKey),
-    attomGet(`/saleshistory/detail?attomid=${attomId}`,    apiKey),
-    attomGet(`/allevents/detail?attomid=${attomId}`,       apiKey),
+    attomGet(`/property/detail?attomid=${attomId}`,        apiKey, 5, DETAIL_TIMEOUT_MS),
+    attomGet(`/avm/detail?attomid=${attomId}`,             apiKey, 5, DETAIL_TIMEOUT_MS),
+    attomGet(`/saleshistory/detail?attomid=${attomId}`,    apiKey, 5, DETAIL_TIMEOUT_MS),
+    attomGet(`/allevents/detail?attomid=${attomId}`,       apiKey, 5, DETAIL_TIMEOUT_MS),
   ]);
 
   const p   = detailJson?.property?.[0] ?? snapProp;
@@ -290,7 +298,8 @@ export async function fetchATTOMParcel(
 
   // Absentee / corporate flags
   // ATTOM absenteeInd: "O" = owner-occupied, "A" = absentee
-  const absenteeRaw     = own.absenteeInd ?? summ.absenteeInd ?? null;
+  // Field confirmed at summary.absenteeInd in live data; owner.absenteeInd is secondary fallback
+  const absenteeRaw     = summ.absenteeInd ?? own.absenteeInd ?? null;
   const absenteeOwner   = absenteeRaw === "A" || absenteeRaw === "Y" ? true
                         : absenteeRaw === "O" || absenteeRaw === "N" ? false
                         : null;
@@ -299,9 +308,12 @@ export async function fetchATTOMParcel(
   const corporateOwner  = corpFlag === "Y" ? true : corpFlag === "N" ? false : null;
   const ownerCorp       = corporateOwner ? (ownerName !== "Not on record" ? ownerName : null) : null;
 
-  // Lot
-  const lotSqFt  = dollar(lot.lotsize1);
-  const lotAcres = lot.lotsize2 ? parseFloat(parseFloat(lot.lotsize2).toFixed(3)) : null;
+  // Lot — ATTOM field meaning confirmed across multiple properties:
+  //   lotsize1 = ACRES  (e.g. 0.18, 0.1595, 9.183)
+  //   lotsize2 = SQ FT  (e.g. 7857, 6948, 400011)
+  // snapshot endpoint may only return lotsize1 (acres); convert as fallback
+  const lotAcres = lot.lotsize1 ? parseFloat(parseFloat(lot.lotsize1).toFixed(3)) : null;
+  const lotSqFt  = dollar(lot.lotsize2) ?? (lotAcres ? Math.round(lotAcres * 43560) : null);
   const dims     = parseDimensions(lot.frontage, lot.depth);
 
   // Corner lot — siteinfluence code 3 = Corner, code 7 = Corner/Cul-de-sac
@@ -326,15 +338,18 @@ export async function fetchATTOMParcel(
   const buildingCondition     = bldgSumm.condition ?? bldgConst.condition ?? null;
   const buildingQuality       = bldgSumm.quality   ?? null;
 
-  const rawYearBuilt = parseInt(bldgSumm.yearbuilt ?? bldgSumm.yearBuilt, 10);
+  // yearbuilt confirmed at summary.yearbuilt (top-level) in live ATTOM data,
+  // as well as building.summary.yearbuilt — check both paths
+  const rawYearBuilt = parseInt(bldgSumm.yearbuilt ?? bldgSumm.yearBuilt ?? summ.yearbuilt ?? "0", 10);
   const yearBuilt    = rawYearBuilt > 1800 && rawYearBuilt <= new Date().getFullYear() ? rawYearBuilt : null;
   const rawYearEff   = parseInt(bldgSumm.yearbuilteffective ?? bldgSumm.yearBuiltEffective ?? "0", 10);
   const yearBuiltEffective = rawYearEff > 1800 && rawYearEff <= new Date().getFullYear() ? rawYearEff : null;
 
   // Utilities — critical for car wash
   // ATTOM sewer/water codes vary by county; we normalise to readable strings
-  const sewerRaw = util.sewertype ?? util.sewer ?? null;
-  const waterRaw = util.watertype ?? util.water ?? null;
+  const sewerRaw = util.sewertype ?? util.sewerType ?? util.sewer ?? null;
+  // ATTOM confirmed response uses capital T: utilities.waterType — check both casings
+  const waterRaw = util.waterType ?? util.watertype ?? util.water ?? null;
 
   function normaliseUtility(raw: string | null): string | null {
     if (!raw) return null;
@@ -434,15 +449,24 @@ export async function fetchATTOMParcel(
   const avmAmount = avm?.amount ?? null;
   const avmFSD    = avm?.condition?.fsd ? parseFloat(avm.condition.fsd) : null;
 
-  // ── Source note ───────────────────────────────────────────────────────────
+  // ── Source note — only list endpoints that actually returned data ───────
+  const endpointsLoaded = [
+    "property/snapshot",
+    detailJson  ? "property/detail"        : null,
+    avmJson     ? "avm/detail"             : null,
+    historyJson ? "saleshistory/detail"    : null,
+    eventsJson  ? "allevents/detail"       : null,
+  ].filter(Boolean).join(" · ");
+
   const sourceNote =
     `ATTOM Property API (api.gateway.attomdata.com). ` +
     `ATTOM ID ${attomId}${id.apn ? ` · APN ${id.apn}` : ""}. ` +
-    `Fields: property/detail · avm/detail · saleshistory/detail · allevents/detail. ` +
+    `Endpoints loaded: ${endpointsLoaded}. ` +
     `Assessor parcel data — timeliness varies by county.` +
     (avm ? ` AVM computed ${avm?.eventDate ?? "recently"}.` : "") +
     (saleHistory.length > 0 ? ` ${saleHistory.length} historical transactions found.` : "") +
-    (activeLienCount > 0 ? ` ${activeLienCount} active lien(s) on record.` : "");
+    (activeLienCount > 0 ? ` ${activeLienCount} active lien(s) on record.` : "") +
+    (!detailJson ? " Note: detail endpoint unavailable — assessment/financial values may be limited." : "");
 
   return {
     // ── RegridParcelData base ──────────────────────────────────────────────

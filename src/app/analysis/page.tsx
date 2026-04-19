@@ -7,7 +7,7 @@ import {
   TrendingUp, Users, DollarSign, Target, Lightbulb,
   CheckCircle, XCircle, ChevronDown, ChevronUp,
   Share2, Navigation, Maximize2, FileText, BarChart2,
-  Building2, Map, Activity,
+  Map, Activity,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
@@ -52,13 +52,9 @@ const LotFitChecker = dynamic(
   () => import("@/components/LotFitChecker"),
   { ssr: false, loading: () => <div className="shimmer h-96 rounded-2xl" /> }
 );
-const RegridParcelPanel = dynamic(
-  () => import("@/components/RegridParcelPanel"),
+const ParcelDataPanel = dynamic(
+  () => import("@/components/ParcelDataPanel"),
   { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
-);
-const SitePreview3D = dynamic(
-  () => import("@/components/SitePreview3D"),
-  { ssr: false, loading: () => <div className="shimmer h-[460px] rounded-2xl" /> }
 );
 const DemographicsPanel = dynamic(
   () => import("@/components/DemographicsPanel"),
@@ -198,13 +194,14 @@ function AnalysisPageInner() {
   const address      = searchParams.get("address")  ?? "";
   const budget       = searchParams.get("budget")   ?? "";
   const currCode     = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
-  const radiusMiles  = parseFloat(searchParams.get("radius") ?? "5") || 5;
+  const initialRadius = parseFloat(searchParams.get("radius") ?? "5") || 5;
   const configId     = searchParams.get("config") ?? null;
 
-  const [result,  setResult]  = useState<SiteAnalysisResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState("");
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [result,       setResult]       = useState<SiteAnalysisResult | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState("");
+  const [activeTab,    setActiveTab]    = useState<TabId>("overview");
+  const [activeRadius, setActiveRadius] = useState(initialRadius);
   const hasFetched = useRef(false);
 
   const [currency, setCurrency] = useState<CurrencyOption>(
@@ -232,8 +229,9 @@ function AnalysisPageInner() {
 
   const rate = rates[currency.code] ?? 1;
 
-  const runAnalysis = async () => {
+  const runAnalysis = async (radiusOverride?: number) => {
     if (!address) { setError("No address provided."); setLoading(false); return; }
+    const effectiveRadius = radiusOverride ?? activeRadius;
     setLoading(true);
     setError("");
     hasFetched.current = true;
@@ -241,7 +239,7 @@ function AnalysisPageInner() {
       const res  = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, budget, radiusMiles, configId }),
+        body: JSON.stringify({ address, budget, radiusMiles: effectiveRadius, configId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Analysis failed");
@@ -251,6 +249,17 @@ function AnalysisPageInner() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRadiusChange = (newRadius: number) => {
+    setActiveRadius(newRadius);
+    // Reflect in URL so share/refresh preserves the chosen radius
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("radius", newRadius.toString());
+      window.history.replaceState({}, "", url.toString());
+    } catch {}
+    runAnalysis(newRadius);
   };
 
   useEffect(() => {
@@ -278,7 +287,9 @@ function AnalysisPageInner() {
           </button>
 
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
-            <img src="/avw-logo.png" alt="Car Wash Site Analysis" className="h-7 w-auto object-contain flex-shrink-0" />
+            <div className="w-6 h-6 rounded bg-blue-500/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
+              <MapPin className="w-3 h-3 text-blue-400" />
+            </div>
             <span className="text-white text-sm font-medium truncate max-w-sm hidden md:block">{result.address}</span>
           </div>
 
@@ -289,6 +300,23 @@ function AnalysisPageInner() {
                 <span>Live</span>
               </div>
             )}
+
+            {/* ── Radius selector ──────────────────────────────────── */}
+            <div className="hidden sm:flex items-center gap-1.5 bg-slate-700/50 border border-slate-600/40 rounded-xl px-2.5 py-1.5">
+              <MapPin className="w-3 h-3 text-blue-400 flex-shrink-0" />
+              <select
+                value={activeRadius}
+                onChange={(e) => handleRadiusChange(parseInt(e.target.value))}
+                disabled={loading}
+                className="bg-transparent text-blue-300 font-bold text-xs outline-none cursor-pointer disabled:opacity-50"
+                title="Change search radius — re-runs full analysis"
+              >
+                {[5,8,10,12,15,18,20,25,31].map((m) => (
+                  <option key={m} value={m} className="bg-slate-800 text-white">{m} mi</option>
+                ))}
+              </select>
+            </div>
+
             <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
             <div
               className="px-3 py-1.5 rounded-full text-xs font-black"
@@ -437,7 +465,7 @@ function AnalysisPageInner() {
                 { tab: "traffic" as TabId,      label: "Daily Traffic (AADT)", icon: "🚗",
                   value: trafficSignals.estimatedDailyTraffic.toLocaleString() },
                 { tab: "competitive" as TabId,  label: "Competitors Found",    icon: "🏪",
-                  value: `${competitors.length} within ${result.radiusMiles} mi` },
+                  value: `${competitors.length} within ${activeRadius} mi` },
                 { tab: "site" as TabId,         label: "Parcel Data",          icon: "📍",
                   value: result.parcel?.status === "live" ? result.parcel.address : "Parcel data unavailable" },
                 { tab: "financials" as TabId,   label: "Year 1 Revenue",       icon: "📈",
@@ -566,9 +594,23 @@ function AnalysisPageInner() {
         ═══════════════════════════════════════════════════════════════ */}
         {activeTab === "competitive" && (
           <>
+            {/* ── Competition map — site + all competitor pins ─────────── */}
+            <Section
+              title="Competition Map"
+              subtitle={`${competitors.length} competitor${competitors.length !== 1 ? "s" : ""} within ${activeRadius} mi · blue = your site · colour = threat level`}
+              icon={<MapPin className="w-5 h-5 text-blue-400" />}
+            >
+              <AnalysisMap
+                center={result.coordinates}
+                competitors={competitors}
+                apiKey={apiKey}
+                radiusMiles={activeRadius}
+              />
+            </Section>
+
             <Section
               title={`Competitor Analysis (${competitors.length} found)`}
-              subtitle={`Every car wash within ${result.radiusMiles ?? radiusMiles} miles — ratings, reviews, and weaknesses`}
+              subtitle={`Every car wash within ${activeRadius} miles — ratings, reviews, and weaknesses`}
               icon={<Users className="w-5 h-5 text-yellow-400" />}
             >
               {competitors.length === 0 ? (
@@ -576,7 +618,7 @@ function AnalysisPageInner() {
                   <div className="text-6xl mb-4">🔍</div>
                   <h3 className="text-white font-bold text-xl mb-2">No Competitors Found</h3>
                   <p className="text-slate-400 text-sm max-w-sm mx-auto">
-                    No car washes found within {result.radiusMiles ?? radiusMiles} miles.
+                    No car washes found within {activeRadius} miles.
                     This may indicate low market density — review traffic and parcel data carefully before drawing conclusions.
                   </p>
                 </div>
@@ -599,7 +641,7 @@ function AnalysisPageInner() {
                   <span className="text-blue-400 text-xs mt-0.5">📡</span>
                   <p className="text-slate-300 text-xs leading-relaxed">
                     <span className="text-blue-300 font-semibold">Live data</span> — pulled from Google Places reviews at time of analysis.
-                    {competitors.length} competitor{competitors.length !== 1 ? "s" : ""} within {result.radiusMiles ?? radiusMiles} miles.
+                    {competitors.length} competitor{competitors.length !== 1 ? "s" : ""} within {activeRadius} miles.
                   </p>
                 </div>
                 <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -640,14 +682,14 @@ function AnalysisPageInner() {
           <>
             <Section
               title="Location Map"
-              subtitle={`${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within ${result.radiusMiles ?? radiusMiles} miles · Click pins for details`}
+              subtitle={`${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within ${activeRadius} miles · Click pins for details`}
               icon={<MapPin className="w-5 h-5 text-blue-400" />}
             >
               <AnalysisMap
                 center={result.coordinates}
                 competitors={competitors}
                 apiKey={apiKey}
-                radiusMiles={result.radiusMiles ?? radiusMiles}
+                radiusMiles={activeRadius}
               />
             </Section>
 
@@ -663,28 +705,13 @@ function AnalysisPageInner() {
               />
             </Section>
 
-            {configId && result.coordinates && (
-              <Section
-                title="3D Site Preview"
-                subtitle="See how your selected car wash format sits on this lot"
-                icon={<span className="text-lg">🏗️</span>}
-              >
-                <SitePreview3D
-                  configId={configId}
-                  lat={result.coordinates.lat}
-                  lng={result.coordinates.lng}
-                  address={result.address}
-                />
-              </Section>
-            )}
-
             {(result.parcel || result.countryCode === "US") && result.parcel && (
               <Section
                 title="Land Parcel Record"
                 subtitle="Owner · AVM · assessed value · last sale · zoning · lot dimensions — from ATTOM Data (county assessor) + OpenStreetMap"
                 icon={<FileText className="w-5 h-5 text-emerald-400" />}
               >
-                <RegridParcelPanel parcel={result.parcel} osmBuilding={result.osmBuilding} />
+                <ParcelDataPanel parcel={result.parcel} osmBuilding={result.osmBuilding} />
               </Section>
             )}
 
@@ -888,7 +915,7 @@ function AnalysisPageInner() {
 
         {/* Footer */}
         <p className="text-slate-500 text-xs text-center pb-4">
-          Car Wash Site Intelligence · Powered by Google Maps Platform, TomTom, ATTOM Data, OpenStreetMap &amp; US Census Bureau ·
+          Powered by Google Maps Platform, TomTom, ATTOM Data, OpenStreetMap &amp; US Census Bureau ·
           For informational purposes only. Verify all projections with qualified professionals before committing capital.
         </p>
       </div>

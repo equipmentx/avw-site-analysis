@@ -117,58 +117,82 @@ export default function FinalDecisionPanel({ result, budget, currency, rate, con
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <h2 className={`text-2xl font-black ${style.text}`}>{decision.verdict}</h2>
-            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${decision.budgetFeasible ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-300" : "bg-red-500/20 border border-red-500/30 text-red-300"}`}>
-              Budget: {decision.budgetFeasible ? "FEASIBLE" : "INSUFFICIENT"}
-            </span>
+            {decision.budgetUSD > 0 && (
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${decision.budgetFeasible ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-300" : "bg-red-500/20 border border-red-500/30 text-red-300"}`}>
+                Budget: {decision.budgetFeasible ? "FEASIBLE" : "INSUFFICIENT"}
+              </span>
+            )}
+            {decision.budgetUSD === 0 && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-600/40 border border-slate-600/50 text-slate-400">
+                No Budget Entered
+              </span>
+            )}
           </div>
           <p className="text-slate-300 text-sm leading-relaxed">{decision.decisionSummary}</p>
         </div>
       </div>
 
       {/* ── Budget analysis ─────────────────────────────────────────────────── */}
-      <div className={`rounded-2xl p-4 border space-y-4 ${decision.budgetFeasible ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+      <div className={`rounded-2xl p-4 border space-y-4 ${decision.budgetUSD > 0 ? (decision.budgetFeasible ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20") : "bg-slate-700/20 border-slate-600/30"}`}>
 
-        {/* Visual budget comparison */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
-            <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Your Budget</div>
-            <div className={`text-lg font-black ${decision.budgetFeasible ? "text-emerald-300" : "text-red-300"}`}>
-              {fmt(decision.budgetUSD)}
+        {/* Visual budget comparison — only shown when budget was entered */}
+        {decision.budgetUSD > 0 && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
+                <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Your Budget</div>
+                <div className={`text-lg font-black ${decision.budgetFeasible ? "text-emerald-300" : "text-red-300"}`}>
+                  {fmt(decision.budgetUSD)}
+                </div>
+                <div className="text-slate-300 text-[10px] mt-0.5">What you have to invest</div>
+              </div>
+              <div className="bg-slate-800/60 rounded-xl p-3 border border-yellow-500/20">
+                <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Minimum Viable Investment</div>
+                <div className="text-lg font-black text-yellow-300">
+                  {fmt(decision.minimumRequiredUSD)}
+                </div>
+                <div className="text-slate-300 text-[10px] mt-0.5">Hard floor to build a viable tunnel</div>
+              </div>
             </div>
-            <div className="text-slate-300 text-[10px] mt-0.5">What you have to invest</div>
-          </div>
-          <div className="bg-slate-800/60 rounded-xl p-3 border border-yellow-500/20">
-            <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Minimum Viable Investment</div>
-            <div className="text-lg font-black text-yellow-300">
-              {fmt(decision.minimumRequiredUSD)}
-            </div>
-            <div className="text-slate-300 text-[10px] mt-0.5">Hard floor to build a viable tunnel</div>
-          </div>
-        </div>
 
-        {/* Progress bar: budget vs minimum */}
-        <div>
-          <div className="flex justify-between text-[10px] text-slate-300 mb-1">
-            <span>Budget coverage of minimum</span>
-            <span className={decision.budgetFeasible ? "text-emerald-400" : "text-red-400"}>
-              {Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100)}%
-            </span>
+            {/* Progress bar: budget vs minimum */}
+            <div>
+              <div className="flex justify-between text-[10px] text-slate-300 mb-1">
+                <span>Budget coverage of minimum</span>
+                <span className={decision.budgetFeasible ? "text-emerald-400" : "text-red-400"}>
+                  {Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100)}%
+                </span>
+              </div>
+              <div className="h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-1000 ${decision.budgetFeasible ? "bg-emerald-400" : "bg-red-400"}`}
+                  style={{ width: `${Math.min(100, Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100))}%` }}
+                />
+              </div>
+              <p className="text-slate-300 text-[10px] mt-1">
+                The Minimum Viable Investment is the absolute floor — below this, no car wash can be built to a profitable standard. Your Suggested Investment Range (in the section above) is what a properly-built site actually costs.
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* Minimum reference — shown when no budget entered */}
+        {decision.budgetUSD === 0 && (
+          <div className="grid grid-cols-1 gap-3">
+            <div className="bg-slate-800/60 rounded-xl p-3 border border-yellow-500/20">
+              <div className="text-slate-200 text-[10px] uppercase tracking-wider mb-1">Typical Minimum Investment</div>
+              <div className="text-lg font-black text-yellow-300">
+                {fmt(decision.minimumRequiredUSD)}
+              </div>
+              <div className="text-slate-300 text-[10px] mt-0.5">Hard floor to build a viable car wash in this market</div>
+            </div>
           </div>
-          <div className="h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-1000 ${decision.budgetFeasible ? "bg-emerald-400" : "bg-red-400"}`}
-              style={{ width: `${Math.min(100, Math.round((decision.budgetUSD / decision.minimumRequiredUSD) * 100))}%` }}
-            />
-          </div>
-          <p className="text-slate-300 text-[10px] mt-1">
-            The Minimum Viable Investment is the absolute floor — below this, no car wash can be built to a profitable standard. Your Suggested Investment Range (in the section above) is what a properly-built site actually costs.
-          </p>
-        </div>
+        )}
 
         {/* Full analysis text */}
         <div className="flex items-start gap-2 border-t border-slate-700/30 pt-3">
-          <span className="text-lg flex-shrink-0">{decision.budgetFeasible ? "💰" : "❌"}</span>
-          <p className={`text-sm leading-relaxed ${decision.budgetFeasible ? "text-emerald-200" : "text-red-200"}`}>
+          <span className="text-lg flex-shrink-0">{decision.budgetUSD > 0 ? (decision.budgetFeasible ? "💰" : "❌") : "ℹ️"}</span>
+          <p className={`text-sm leading-relaxed ${decision.budgetUSD > 0 ? (decision.budgetFeasible ? "text-emerald-200" : "text-red-200") : "text-slate-300"}`}>
             {decision.budgetAnalysis}
           </p>
         </div>

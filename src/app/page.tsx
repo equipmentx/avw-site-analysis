@@ -44,12 +44,12 @@ const FEATURES = [
   {
     icon: <TrendingUp className="w-6 h-6 text-purple-400" />,
     title: "Opportunity Scoring",
-    desc: "Scores your location 0 to 100 using AADT traffic data, competition density, and market viability — with plain-English explanation.",
+    desc: "Produces a comparative score (0–100) based on AADT traffic data, competition density, and market viability — with a plain-English breakdown. Directional guidance only; not a guarantee of outcome.",
   },
   {
     icon: <DollarSign className="w-6 h-6 text-green-400" />,
     title: "Investment Range",
-    desc: "Provides a data-backed cost range for each car wash format — land, construction, equipment, and fees — based on live parcel and regional data.",
+    desc: "Estimates a cost range per car wash format — land, construction, equipment, and fees — based on live parcel data and published industry benchmarks. Verify with local contractors before committing capital.",
   },
   {
     icon: <Zap className="w-6 h-6 text-orange-400" />,
@@ -236,18 +236,23 @@ export default function LandingPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Load Google Maps
+  // Wire up Google Maps readiness — layout already loads the script globally.
+  // We just need to register our callback and check if it's already loaded.
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey || apiKey === "YOUR_GOOGLE_MAPS_API_KEY_HERE") return;
+    // Already loaded (e.g. returning from analysis page in same session)
     if (window.google?.maps) { setMapsReady(true); return; }
+    // Register callback — layout's global script will call this when Maps loads
     window.initGoogleMaps = () => setMapsReady(true);
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGoogleMaps`;
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-    return () => { try { document.head.removeChild(script); } catch {} };
+    // Guard: if no layout script present (dev/local without layout), load ourselves
+    if (!document.querySelector('script[src*="maps.googleapis.com"]')) {
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGoogleMaps`;
+      script.async = true;
+      document.head.appendChild(script);
+      return () => { try { document.head.removeChild(script); } catch {} };
+    }
   }, []);
 
   // Wire autocomplete
@@ -291,11 +296,12 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 backdrop-blur-md bg-black/25 border-b border-white/5">
         <button onClick={handleLogoClick} className="flex items-center gap-2 group" title="Refresh">
-          <img
-            src="/avw-logo.png"
-            alt="Car Wash Site Analysis"
-            className="h-9 w-auto object-contain group-hover:scale-105 transition-transform"
-          />
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
+              <MapPin className="w-4 h-4 text-blue-400" />
+            </div>
+            <span className="text-white font-bold text-sm hidden sm:inline">Site Intelligence</span>
+          </div>
         </button>
 
         <div className="hidden md:flex items-center gap-6 text-sm text-slate-200">
@@ -306,7 +312,7 @@ export default function LandingPage() {
 
         <div className="flex items-center gap-2 text-xs bg-blue-500/10 text-blue-300 border border-blue-500/20 rounded-full px-3 py-1.5">
           <Shield className="w-3 h-3" />
-          <span>Car Wash Site Intelligence</span>
+          <span>Data-Driven Site Analysis</span>
         </div>
       </nav>
 
@@ -348,18 +354,7 @@ export default function LandingPage() {
               </div>
               <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
                 <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
-                <input
-                  type="text"
-                  placeholder={`Budget (optional) — e.g., ${currency.symbol}3,500,000`}
-                  className="flex-1 bg-transparent text-slate-200 placeholder-slate-500 text-sm outline-none"
-                  value={budget ? parseInt(budget).toLocaleString() : ""}
-                  onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
-                />
-                {budget && (
-                  <span className="text-xs text-emerald-400 font-semibold whitespace-nowrap">
-                    {currency.symbol}{parseInt(budget).toLocaleString()} {currency.code}
-                  </span>
-                )}
+                <span className="text-slate-500 text-xs">Investment ranges shown per format on the next step</span>
               </div>
 
               {/* Radius selector — slider 5→31 mi (Google Places API hard limit) */}
@@ -576,16 +571,15 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="relative z-10 border-t border-slate-700/50 py-8 px-4">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <button onClick={handleLogoClick} className="flex items-center group">
-            <img
-              src="/avw-logo.png"
-              alt="Car Wash Site Analysis"
-              className="h-7 w-auto object-contain group-hover:scale-105 transition-transform"
-            />
+          <button onClick={handleLogoClick} className="flex items-center gap-2 group">
+            <div className="w-6 h-6 rounded bg-blue-500/20 border border-blue-500/30 flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
+              <MapPin className="w-3 h-3 text-blue-400" />
+            </div>
+            <span className="text-slate-400 text-xs font-medium group-hover:text-white transition-colors">Site Intelligence Tool</span>
           </button>
 
           <p className="text-slate-200 text-xs text-center font-medium">
-            &copy; 2026 Car Wash Site Intelligence. For informational purposes only — verify all data with qualified professionals before committing capital.
+            For informational purposes only — verify all data with qualified professionals before committing capital.
           </p>
 
           <p className="text-slate-200 text-xs font-medium">

@@ -216,7 +216,13 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
             ["Capture Rate",            (assumptions.captureRate * 100).toFixed(0) + "%",           "Express Car Wash Pro Forma — industry benchmark"],
             ["Daily Cars Washed",       formatNumber(assumptions.dailyCarsWashed) + " cars",        "Traffic × capture rate"],
             ["Avg Revenue Per Car",     "$" + assumptions.avgRevenuePerCar.toFixed(2),              "Express Car Wash Pro Forma — weighted pricing tiers"],
-            ["Land Cost",               fmtC(assumptions.landCost, rate, symbol),                   "23.9% of total project cost (Pro Forma model ratio)"],
+            ["Land Cost",               fmtC(assumptions.landCost, rate, symbol),
+              assumptions.landCostSource === "attom-sale"     ? "Live ATTOM data — last sale price + 15% appreciation" :
+              assumptions.landCostSource === "attom-market"   ? "Live ATTOM data — assessor market value + 10% buffer" :
+              assumptions.landCostSource === "attom-assessed" ? "Live ATTOM data — assessed land value + 20% to market" :
+              assumptions.landCostSource === "attom-avm"      ? "Live ATTOM AVM estimate × 30% commercial land ratio" :
+              "23.9% of total project cost (Pro Forma model ratio)"
+            ],
             ["Equipment Cost",          fmtC(assumptions.equipmentCost, rate, symbol),              "32.8% of total project cost (Pro Forma model ratio)"],
             ["Construction Cost",       fmtC(assumptions.constructionCost, rate, symbol),           "29.5% of total project cost (Pro Forma model ratio)"],
             ["Interest Rate",           (assumptions.interestRate * 100).toFixed(0) + "%",          "Pro Forma model — standard SBA commercial lending rate"],

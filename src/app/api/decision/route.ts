@@ -49,10 +49,12 @@ function rulesDecision(
   const effectiveMinRequired = configMinUSD ?? minRequired;
 
   // ── Budget feasibility ──────────────────────────────────────────────────────
+  // budget=0 means "no budget entered" — evaluate on location score only
+  const noBudget       = budgetUSD === 0;
   const budgetGap      = effectiveMinRequired - budgetUSD;
-  const budgetRatio    = budgetUSD / effectiveMinRequired;
-  const budgetFeasible = budgetRatio >= 1.0;
-  const budgetMarginal = budgetRatio >= 0.6 && budgetRatio < 1.0;
+  const budgetRatio    = noBudget ? 1.0 : budgetUSD / effectiveMinRequired;
+  const budgetFeasible = noBudget || budgetRatio >= 1.0;
+  const budgetMarginal = !noBudget && budgetRatio >= 0.6 && budgetRatio < 1.0;
 
   // ── Wage impact analysis (ILO vs Excel baseline) ────────────────────────────
   const staffHourly   = assumptions.staffHourlyUSD   ?? US_BASELINE_STAFF_HOURLY;
@@ -121,7 +123,13 @@ function rulesDecision(
     : `(based on the Express Car Wash Pro Forma model scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of the US benchmark)`;
 
   let budgetAnalysis: string;
-  if (budgetFeasible) {
+  if (noBudget) {
+    budgetAnalysis =
+      `No investment budget was provided — this decision is evaluated on location fundamentals only. ` +
+      `The typical investment required for ${configLabel} in ${country.name} is ${fmtUSD(effectiveMinRequired)} ${configFloorNote}. ` +
+      (config && configMaxUSD ? `Full build-out range: ${fmtUSD(configMaxUSD)}. ` : "") +
+      `To get a personalised budget feasibility assessment, enter your available investment on the home page.`;
+  } else if (budgetFeasible) {
     budgetAnalysis =
       `Budget of ${fmtUSD(budgetUSD)} is SUFFICIENT for ${configLabel} in ${country.name}. ` +
       `Minimum viable investment is ${fmtUSD(effectiveMinRequired)} ${configFloorNote}. ` +
@@ -198,7 +206,7 @@ function rulesDecision(
 
   // ── Red flags ───────────────────────────────────────────────────────────────
   const redFlags: string[] = [];
-  if (!budgetFeasible)                               redFlags.push(`Budget ${fmtUSD(budgetUSD)} is below minimum viable ${fmtUSD(minRequired)} — gap of ${fmtUSD(budgetGap)}`);
+  if (!noBudget && !budgetFeasible)                  redFlags.push(`Budget ${fmtUSD(budgetUSD)} is below minimum viable ${fmtUSD(minRequired)} — gap of ${fmtUSD(budgetGap)}`);
   if (fp.year1EBITDA <= 0)                           redFlags.push(`Year 1 EBITDA is negative (${fmtUSD(fp.year1EBITDA)}) — location may not generate enough revenue at current traffic levels`);
   if (score.components.traffic < 40)                 redFlags.push(`Low traffic score (${score.components.traffic}/100) — not enough daily cars passing the site`);
   if (score.components.competition >= 75)            redFlags.push(`High competition score (${score.components.competition}/100) — strong established players nearby`);
@@ -371,9 +379,11 @@ function rulesDecision(
     parcelLive
       ? `Parcel (ATTOM): ${lotSqFt?.toLocaleString() ?? "?"} sqft · ${widthFt ? `${widthFt}ft wide × ${depthFt}ft deep` : "dimensions unavailable"} · zoning: ${parcelZoning ?? "unknown"} · owner: ${parcelOwner ?? "unknown"}`
       : `Parcel data: not available (US-only; ATTOM_API_KEY not configured or location outside coverage)`,
-    parcelLive && parcelLastSale
-      ? `Land value (ATTOM): last sale ${fmtUSD(parcelLastSale)}${parcelLastDate ? ` on ${parcelLastDate}` : ""} · assessed land ${parcelLandVal ? fmtUSD(parcelLandVal) : "n/a"}`
-      : `Land value: no ATTOM data`,
+    parcelLive && (parcelLastSale || parcelLandVal)
+      ? `Land value (ATTOM): last sale ${parcelLastSale ? fmtUSD(parcelLastSale) : "n/a"}${parcelLastDate ? ` on ${parcelLastDate}` : ""} · assessed land ${parcelLandVal ? fmtUSD(parcelLandVal) : "n/a"}`
+      : parcelLive
+      ? `Land value (ATTOM): connected — assessor financial fields (sale price, assessed value) not returned by this county's record; investment range uses pro-forma estimate`
+      : `Land value: ATTOM not available (US-only; check ATTOM_API_KEY or location outside coverage)`,
     `Suggested investment range (BLS CPI-adjusted): ${fmtUSD(inv.minEstimateUSD)}–${fmtUSD(inv.maxEstimateUSD)} · land ${fmtUSD(inv.breakdown.land.min)}–${fmtUSD(inv.breakdown.land.max)} · construction ${fmtUSD(inv.breakdown.construction.min)}–${fmtUSD(inv.breakdown.construction.max)} · equipment ${fmtUSD(inv.breakdown.equipment.min)}–${fmtUSD(inv.breakdown.equipment.max)} [${inv.sourceNote}]`,
   ];
 
@@ -464,7 +474,9 @@ function rulesDecision(
   const decisionSummary =
     `This ${result.address} analysis scores ${score.overall}/100 with a ${score.verdict} verdict` +
     (config ? ` for a ${config.name}` : "") + `. ` +
-    (budgetFeasible
+    (noBudget
+      ? `No investment budget was entered — evaluated on location fundamentals only. Typical investment: ${fmtUSD(effectiveMinRequired)} in ${country.name}.`
+      : budgetFeasible
       ? `Your budget of ${fmtUSD(budgetUSD)} covers the minimum ${fmtUSD(effectiveMinRequired)} required${config ? ` for this format` : ""} in ${country.name}.`
       : `However, your budget of ${fmtUSD(budgetUSD)} falls ${fmtUSD(budgetGap)} short of the ${fmtUSD(effectiveMinRequired)} minimum${config ? ` for the ${config.shortName}` : ""} in ${country.name}.`) +
     ` ${verdict === "INVEST" ? "The location fundamentals support moving forward." : verdict === "PROCEED WITH CAUTION" ? "Proceed carefully with additional due diligence." : "This investment is not recommended at this time."}`;
@@ -496,7 +508,7 @@ export async function POST(req: NextRequest) {
       configId?: string;
     };
 
-    if (!result || !budget) {
+    if (!result || budget == null) {
       return NextResponse.json({ error: "result and budget are required" }, { status: 400 });
     }
 

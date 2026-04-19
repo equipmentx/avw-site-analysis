@@ -119,6 +119,7 @@ export interface FinancialAssumptions {
   avgRevenuePerCar: number;
   totalCapex: number;
   landCost: number;
+  landCostSource: "attom-sale" | "attom-market" | "attom-assessed" | "attom-avm" | "pro-forma-ratio";
   equipmentCost: number;
   constructionCost: number;
   interestRate: number;
@@ -168,6 +169,8 @@ export interface TomTomTrafficFlow {
   roadClassLabel: string;           // Human-readable
   confidence: number;               // 0–1
   vehicleCount: TomTomVehicleCount; // live-derived vehicle count at this location
+  roadSegmentDistanceMiles: number | null; // distance from query point to nearest segment coordinate
+  segmentWarning: string | null;    // set if segment is too far from query point to be reliable
   status: "live" | "unavailable";
   source: string;
 }
@@ -190,6 +193,10 @@ export interface TomTomIncident {
   endTime?: string;
   lat: number;
   lng: number;
+  // Road location detail
+  roadFrom?: string;       // "From" road segment name/junction (e.g. "Oak St")
+  roadTo?: string;         // "To" road segment name/junction
+  roadNumbers?: string[];  // Road identifiers (e.g. ["I-85", "US-78"])
 }
 
 export interface TomTomIncidentsData {

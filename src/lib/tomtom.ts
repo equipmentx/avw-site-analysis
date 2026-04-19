@@ -223,8 +223,20 @@ export async function fetchTrafficFlow(
     currentSpeedKmh: 0, freeFlowSpeedKmh: 0, congestionRatio: 0,
     congestionLevel: "FREE_FLOW", roadClass: "Unknown", roadClassLabel: "Unknown",
     confidence: 0, vehicleCount: emptyVehicleCount,
+    roadSegmentDistanceMiles: null, segmentWarning: null,
     status: "unavailable", source: reason,
   });
+
+  // Haversine distance — miles between two lat/lng points
+  function distMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 3958.8; // Earth radius in miles
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
 
   if (!apiKey) return unavailable("TomTom Traffic Flow — TOMTOM_API_KEY not configured.");
 
@@ -253,6 +265,28 @@ export async function fetchTrafficFlow(
   // Derive real vehicle count from flow data
   const vehicleCount = deriveVehicleCount(roadClass, currentSpeed, freeFlowSpeed);
 
+  // ── Segment proximity check ─────────────────────────────────────────────────
+  // TomTom snaps to the nearest road segment which may not front the actual site.
+  // If the segment is too far away, the vehicle count reflects a different road.
+  const segCoords: Array<{ latitude: number; longitude: number }> =
+    seg.coordinates?.coordinate ?? [];
+  let roadSegmentDistanceMiles: number | null = null;
+  if (segCoords.length > 0) {
+    let minDist = Infinity;
+    for (const c of segCoords) {
+      const d = distMiles(lat, lng, c.latitude, c.longitude);
+      if (d < minDist) minDist = d;
+    }
+    roadSegmentDistanceMiles = Math.round(minDist * 100) / 100;
+  }
+
+  let segmentWarning: string | null = null;
+  if (roadSegmentDistanceMiles != null && roadSegmentDistanceMiles > 1.0) {
+    segmentWarning =
+      `TomTom's nearest road segment is ${roadSegmentDistanceMiles.toFixed(1)} miles from this location. ` +
+      `The vehicle count above likely reflects a different road — traffic data for this specific site may not be reliable.`;
+  }
+
   return {
     currentSpeedKmh:  Math.round(currentSpeed),
     freeFlowSpeedKmh: Math.round(freeFlowSpeed),
@@ -262,6 +296,8 @@ export async function fetchTrafficFlow(
     roadClassLabel: FRC_LABELS[roadClass] ?? roadClass,
     confidence: Math.round((seg.confidence ?? 0) * 100) / 100,
     vehicleCount,
+    roadSegmentDistanceMiles,
+    segmentWarning,
     status: "live",
     source: "TomTom Traffic Flow Segment Data API v4 — real-time road speed at site location.",
   };
@@ -362,6 +398,14 @@ export async function fetchTrafficIncidents(
     const firstEvt = props.events?.[0]?.description;
     const desc     = firstEvt ?? ICON_CATEGORY[iconCat] ?? "Unknown incident";
 
+    // Road numbers can be an array or a comma-separated string
+    const rawRoadNums = props.roadNumbers ?? props.roadNumber ?? null;
+    const roadNumbers: string[] = Array.isArray(rawRoadNums)
+      ? rawRoadNums.filter(Boolean)
+      : typeof rawRoadNums === "string" && rawRoadNums
+      ? rawRoadNums.split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [];
+
     return {
       id:            `incident-${i}`,
       type:          ICON_CATEGORY[iconCat] ?? "Unknown",
@@ -372,6 +416,9 @@ export async function fetchTrafficIncidents(
       endTime:       props.endTime,
       lat:           Array.isArray(point) && typeof point[1] === "number" ? point[1] : lat,
       lng:           Array.isArray(point) && typeof point[0] === "number" ? point[0] : lng,
+      roadFrom:      props.from ?? undefined,
+      roadTo:        props.to   ?? undefined,
+      roadNumbers:   roadNumbers.length > 0 ? roadNumbers : undefined,
     };
   });
 

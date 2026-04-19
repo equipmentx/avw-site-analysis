@@ -2,7 +2,7 @@
 
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, MapPin, DollarSign } from "lucide-react";
+import { ArrowLeft, MapPin } from "lucide-react";
 import dynamic from "next/dynamic";
 import { CURRENCIES } from "@/lib/types";
 
@@ -44,9 +44,8 @@ function ConfigurePage() {
     router.back();
   };
 
-  const fmtBudget = budget
-    ? `${currency.symbol}${parseInt(budget).toLocaleString()} ${currency.code}`
-    : "Budget not set";
+  // Budget param kept for URL compatibility but no longer displayed upfront.
+  // Investment ranges per format are shown on each config card instead.
 
   return (
     <main className="min-h-screen bg-[#0a1020]">
@@ -67,9 +66,8 @@ function ConfigurePage() {
             <MapPin className="w-3.5 h-3.5 text-blue-400" />
             <span className="truncate max-w-[200px] sm:max-w-xs text-slate-300">{address}</span>
           </div>
-          <div className="hidden sm:flex items-center gap-1.5 text-slate-400">
-            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-slate-300">{fmtBudget}</span>
+          <div className="hidden sm:flex items-center gap-1.5 text-slate-500 text-xs">
+            Investment ranges shown on each format below
           </div>
         </div>
 

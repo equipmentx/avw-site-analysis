@@ -362,10 +362,31 @@ export default function TomTomPanel({ data }: TomTomPanelProps) {
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-800/60 ${severityText}`}>
                           {inc.severityLabel}
                         </span>
+                        {inc.roadNumbers && inc.roadNumbers.length > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/25">
+                            {inc.roadNumbers.join(" / ")}
+                          </span>
+                        )}
                       </div>
                       <div className="text-slate-200 text-xs mt-0.5 leading-relaxed line-clamp-2">
                         {inc.description}
                       </div>
+                      {/* Road location: from / to segment names */}
+                      {(inc.roadFrom || inc.roadTo) && (
+                        <div className="text-slate-300 text-[10px] mt-1 flex items-center gap-1">
+                          {inc.roadFrom && (
+                            <span className="bg-slate-700/60 rounded px-1.5 py-0.5">
+                              From: <span className="text-white font-medium">{inc.roadFrom}</span>
+                            </span>
+                          )}
+                          {inc.roadFrom && inc.roadTo && <span className="text-slate-500">→</span>}
+                          {inc.roadTo && (
+                            <span className="bg-slate-700/60 rounded px-1.5 py-0.5">
+                              To: <span className="text-white font-medium">{inc.roadTo}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {(inc.startTime || inc.endTime) && (
                         <div className="text-slate-400 text-[10px] mt-1">
                           {inc.startTime ? `From: ${new Date(inc.startTime).toLocaleString()}` : ""}

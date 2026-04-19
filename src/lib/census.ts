@@ -62,7 +62,7 @@ export interface CensusData {
 }
 
 // ── Native HTTPS helper ───────────────────────────────────────────────────────
-function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
+function censusGet(url: string, redirectsLeft = 5, timeoutMs = 30_000): Promise<any | null> {
   if (redirectsLeft <= 0) {
     console.warn("[Census] Too many redirects →", url.slice(0, 80));
     return Promise.resolve(null);
@@ -71,9 +71,9 @@ function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      console.warn(`[Census] Timeout (20s) → ${safeUrl}`);
+      console.warn(`[Census] Timeout (${Math.round(timeoutMs / 1000)}s) → ${safeUrl}`);
       resolve(null);
-    }, 20_000);
+    }, timeoutMs);
 
     const req = https.get(
       url,
@@ -83,7 +83,7 @@ function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
           clearTimeout(timer);
           res.resume();
           console.log(`[Census] Redirect ${res.statusCode} → ${res.headers.location.slice(0, 80)}`);
-          censusGet(res.headers.location, redirectsLeft - 1).then(resolve);
+          censusGet(res.headers.location, redirectsLeft - 1, timeoutMs).then(resolve);
           return;
         }
 
@@ -113,6 +113,68 @@ function censusGet(url: string, redirectsLeft = 5): Promise<any | null> {
   });
 }
 
+// ── Census Reporter geo/contains: lat/lng → geo_ids (primary method) ─────────
+// Census Reporter exposes /1.0/geo/contains?lat=&lon=&sumlevs=140,050
+// which returns tract (sumlev 140) and county (sumlev 050) directly.
+// This avoids FCC and Census geocoder entirely — same host as our data fetch.
+async function getGeographyFipsCensusReporter(lat: number, lng: number): Promise<{
+  state: string; county: string; tract: string; countyName: string;
+} | null> {
+  const url =
+    `https://api.censusreporter.org/1.0/geo/contains` +
+    `?lat=${lat}&lon=${lng}&sumlevs=140,050`;
+  console.log("[Census] Census Reporter geo/contains →", url);
+
+  const data = await censusGet(url, 5, 15_000);
+  if (!data) {
+    console.warn("[Census] Census Reporter geo/contains returned null");
+    return null;
+  }
+
+  // Response: { results: [ { geoid: "14000US130890104003", ... }, { geoid: "05000US13089", ... } ] }
+  const results: Array<{ geoid: string; display_name?: string; name?: string }> =
+    Array.isArray(data?.results) ? data.results : [];
+
+  let tractGeoId: string | null  = null;
+  let countyGeoId: string | null = null;
+  let countyName = "County";
+
+  for (const r of results) {
+    const gid = r.geoid ?? "";
+    if (gid.startsWith("14000US") && !tractGeoId)  {
+      tractGeoId  = gid;
+    }
+    if (gid.startsWith("05000US") && !countyGeoId) {
+      countyGeoId = gid;
+      countyName  = r.display_name ?? r.name ?? countyName;
+    }
+  }
+
+  if (!tractGeoId || !countyGeoId) {
+    console.warn("[Census] Census Reporter geo/contains: missing tract or county in response", JSON.stringify(results).slice(0, 200));
+    return null;
+  }
+
+  // Extract FIPS components from the geo_ids
+  // tractGeoId  = "14000US" + 2(state) + 3(county) + 6(tract) = 14000US + 11 digits
+  // countyGeoId = "05000US" + 2(state) + 3(county) = 05000US + 5 digits
+  const tractFips = tractGeoId.replace("14000US", "");  // 11-digit FIPS
+  if (tractFips.length < 11) {
+    console.warn("[Census] Census Reporter: unexpected tract geo_id format", tractGeoId);
+    return null;
+  }
+
+  const state  = tractFips.slice(0, 2);
+  const county = tractFips.slice(2, 5);
+  const tract  = tractFips.slice(5, 11);
+
+  // Strip prefix from county display name (e.g. "DeKalb County, GA" → keep as-is)
+  const cleanCountyName = countyName.split(",")[0].replace(/\s+County$/, "").trim() || "County";
+
+  console.log(`[Census] CR geo/contains FIPS — state:${state} county:${county} tract:${tract} (${cleanCountyName})`);
+  return { state, county, tract, countyName: cleanCountyName };
+}
+
 // ── FCC Block API: lat/lng → FIPS codes ──────────────────────────────────────
 async function getGeographyFipsFCC(lat: number, lng: number): Promise<{
   state: string; county: string; tract: string; countyName: string;
@@ -121,7 +183,8 @@ async function getGeographyFipsFCC(lat: number, lng: number): Promise<{
     `https://geo.fcc.gov/api/census/block/find` +
     `?latitude=${lat}&longitude=${lng}&format=json`;
 
-  const data = await censusGet(url);
+  // FCC can be slow — use 12s so we don't block the whole analysis
+  const data = await censusGet(url, 5, 12_000);
   if (!data) {
     console.warn("[Census] FCC Block API returned null");
     return null;
@@ -157,7 +220,8 @@ async function getGeographyFipsCensus(lat: number, lng: number): Promise<{
     `?x=${lng}&y=${lat}` +
     `&benchmark=Public_AR_Current&vintage=Current_Vintages&layers=Census%20Tracts&format=json`;
 
-  const data = await censusGet(url);
+  // Census geocoder can be slow on this network — 12s timeout
+  const data = await censusGet(url, 5, 12_000);
   if (!data) return null;
 
   const geo = data?.result?.geographies?.["Census Tracts"]?.[0];
@@ -176,11 +240,35 @@ async function getGeographyFipsCensus(lat: number, lng: number): Promise<{
 async function getGeographyFips(lat: number, lng: number): Promise<{
   state: string; county: string; tract: string; countyName: string;
 } | null> {
-  const fcc = await getGeographyFipsFCC(lat, lng);
-  if (fcc) return fcc;
+  // Primary: Census Reporter geo/contains — same host as our data fetch,
+  // consistently fast and accessible, returns tract + county geo_ids directly.
+  const crResult = await getGeographyFipsCensusReporter(lat, lng);
+  if (crResult) return crResult;
 
-  console.warn("[Census] FCC lookup failed — trying Census Geocoder as fallback");
-  return getGeographyFipsCensus(lat, lng);
+  // Fallback: race FCC Block API and Census Geocoder simultaneously.
+  // Both are US government endpoints that can be slow or intermittently blocked.
+  console.log("[Census] Census Reporter geo/contains failed — racing FCC + Census geocoder...");
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (result: { state: string; county: string; tract: string; countyName: string } | null) => {
+      if (result && !settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
+    const fccPromise   = getGeographyFipsFCC(lat, lng).then(settle);
+    const geoPromise   = getGeographyFipsCensus(lat, lng).then(settle);
+
+    // If both complete without a result, resolve null
+    Promise.all([fccPromise, geoPromise]).then(() => {
+      if (!settled) {
+        console.warn("[Census] All three FIPS geocoders failed (Census Reporter, FCC, Census)");
+        resolve(null);
+      }
+    });
+  });
 }
 
 // ── Derive CensusRingData from variable map (ACS-style keys: B01003_001E) ─────
