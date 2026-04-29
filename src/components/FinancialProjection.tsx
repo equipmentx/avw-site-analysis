@@ -192,6 +192,104 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
         </ResponsiveContainer>
       </div>
 
+      {/* Revenue Split — Membership vs Drive-By */}
+      {(data.membershipRevenue > 0 || data.driveByRevenue > 0) && (
+        <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl p-6">
+          <h3 className="text-white font-bold text-base mb-1">Revenue Split — Year 1</h3>
+          <p className="text-slate-300 text-xs mb-5">
+            Drive-by vs. membership/unlimited · Source: Rinsed Q4 2024 — membership ≈ {data.membershipRevenue > 0 ? Math.round((data.membershipRevenue / (data.year1Revenue || 1)) * 100) : 26}% of total revenue
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            {[
+              { label: "Drive-By Revenue", value: data.driveByRevenue, color: "#3b82f6", icon: "🚗", pct: data.year1Revenue > 0 ? Math.round((data.driveByRevenue / data.year1Revenue) * 100) : 74 },
+              { label: "Membership Revenue", value: data.membershipRevenue, color: "#10b981", icon: "♾️", pct: data.year1Revenue > 0 ? Math.round((data.membershipRevenue / data.year1Revenue) * 100) : 26 },
+            ].map(({ label, value, color, icon, pct }) => (
+              <div key={label} className="bg-slate-700/30 border border-slate-600/30 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">{icon}</span>
+                  <span className="text-slate-300 text-sm font-semibold">{label}</span>
+                </div>
+                <div className="text-white font-black text-2xl mb-1">{fmtC(value, rate, symbol)}</div>
+                <div className="h-2 bg-slate-600/40 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                </div>
+                <div className="text-slate-400 text-xs mt-1">{pct}% of Year 1 revenue</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-slate-500 text-[10px]">Source: Rinsed Q4 2024 Car Wash Industry Benchmarks — membership revenue ~26% of total for express operators.</p>
+        </div>
+      )}
+
+      {/* Package Tier Breakdown */}
+      {data.packageBreakdown && data.packageBreakdown.length > 0 && (
+        <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl p-6">
+          <h3 className="text-white font-bold text-base mb-1">Wash Package Revenue Breakdown</h3>
+          <p className="text-slate-300 text-xs mb-5">
+            Drive-by customer distribution across pricing tiers — Sonny's Consulting / Project Prosperitas proforma
+          </p>
+          <div className="space-y-3">
+            {data.packageBreakdown.map((tier, i) => {
+              const colors = ["#3b82f6", "#10b981", "#a855f7", "#f59e0b"];
+              const color  = colors[i] ?? "#94a3b8";
+              return (
+                <div key={tier.tier} className="flex items-center gap-4">
+                  <div className="w-20 flex-shrink-0">
+                    <div className="text-white text-sm font-semibold">{tier.tier}</div>
+                    <div className="text-slate-400 text-xs">${tier.priceUSD.toFixed(2)}/wash</div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-slate-400 text-xs">{(tier.sharePct * 100).toFixed(0)}% of customers</span>
+                      <span className="text-white text-xs font-semibold">{fmtC(tier.annualRevenueUSD, rate, symbol)}/yr</span>
+                    </div>
+                    <div className="h-2 bg-slate-700/50 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${tier.sharePct * 100}%`, backgroundColor: color }} />
+                    </div>
+                  </div>
+                  <div className="w-28 text-right flex-shrink-0">
+                    <div className="text-slate-300 text-xs">{tier.annualCars.toLocaleString()} cars/yr</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-slate-500 text-[10px] mt-4">Package distribution: Basic 50% · Standard 25% · Premium 15% · Ultimate 10% — Sonny's Consulting proforma (Project Prosperitas).</p>
+        </div>
+      )}
+
+      {/* Seasonal Revenue Projection */}
+      {data.seasonalProjection && (
+        <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl p-6">
+          <h3 className="text-white font-bold text-base mb-1">Seasonal Revenue Projection — Year 1</h3>
+          <p className="text-slate-300 text-xs mb-5">
+            ICA 2024 national seasonality: Spring/Summer peak · Winter low · Fall moderate
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { key: "springSummer" as const, icon: "☀️", label: "Spring / Summer", color: "#10b981", bg: "bg-emerald-500/10", border: "border-emerald-500/25" },
+              { key: "fall"         as const, icon: "🍂", label: "Fall",             color: "#f59e0b", bg: "bg-amber-500/10",   border: "border-amber-500/25" },
+              { key: "winter"       as const, icon: "❄️", label: "Winter",           color: "#3b82f6", bg: "bg-blue-500/10",    border: "border-blue-500/25" },
+            ].map(({ key, icon, label, color, bg, border }) => {
+              const s = data.seasonalProjection[key];
+              return (
+                <div key={key} className={`rounded-xl border p-4 text-center ${bg} ${border}`}>
+                  <div className="text-2xl mb-1">{icon}</div>
+                  <div className="text-slate-300 text-xs font-semibold mb-0.5">{label}</div>
+                  <div className="text-slate-400 text-[10px] mb-2">{s.months}</div>
+                  <div className="text-white font-black text-lg leading-none">{fmtC(s.estimatedRevenueUSD, rate, symbol)}</div>
+                  <div className="text-slate-400 text-xs mt-1">{Math.round(s.sharePct * 100)}% of annual revenue</div>
+                  <div className="h-1.5 bg-slate-700/40 rounded-full mt-2 overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${s.sharePct * 100}%`, backgroundColor: color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-slate-500 text-[10px] mt-4">Source: ICA 2024 Industry Report — US national average car wash demand by season. Verify regional variation with a local operator.</p>
+        </div>
+      )}
+
       {/* Car Volume Bar Chart */}
       <div className="bg-slate-800/40 border border-slate-700/30 rounded-2xl p-6">
         <h3 className="text-white font-bold text-base mb-1">Annual Car Volume Projection</h3>

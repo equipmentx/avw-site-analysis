@@ -244,8 +244,10 @@ import { getWageRates } from "@/lib/iloWages";
 import { fetchTomTomData } from "@/lib/tomtom";
 import { fetchATTOMParcel, type ATTOMParcelData } from "@/lib/attom";
 import { fetchOSMBuilding } from "@/lib/osm";
-import type { RegridParcelData } from "@/lib/types";
+import type { RegridParcelData, ProximityData } from "@/lib/types";
 import { fetchCensusData } from "@/lib/census";
+import { COMPETITION_BENCHMARKS } from "@/lib/industryBenchmarks";
+import { fetchProximityFromOverpass } from "@/lib/proximity";
 
 const TOMTOM_API_KEY = process.env.TOMTOM_API_KEY ?? "";
 const ATTOM_API_KEY  = process.env.ATTOM_API_KEY  ?? "";
@@ -283,6 +285,42 @@ function estimateVolumeFromReviews(reviewCount: number, rating: number): Estimat
       `assumed 3-year median business age. Treat as directional only — actual volume varies significantly. ` +
       `Source: Google Places API (live review count).`,
   };
+}
+
+// ── Membership detection ──────────────────────────────────────────────────────
+// Detects whether a competitor has a membership/unlimited plan by scanning
+// their Google Place reviews and business name for membership keywords.
+// Source: COMPETITION_BENCHMARKS.membershipKeywords (industryBenchmarks.ts)
+function detectMembership(place: PlaceResult): boolean | null {
+  const keywords = COMPETITION_BENCHMARKS.membershipKeywords;
+  const nameText = (place.name ?? "").toLowerCase();
+  const reviewText = (place.reviews ?? [])
+    .map((r) => r.text?.toLowerCase() ?? "")
+    .join(" ");
+  const combined = `${nameText} ${reviewText}`;
+  if (!combined.trim()) return null;
+  return keywords.some((kw) => combined.includes(kw));
+}
+
+// ── Wash type classification ──────────────────────────────────────────────────
+// Classifies the competitor's car wash format from name + place types + reviews.
+function classifyWashType(place: PlaceResult): import("@/lib/types").CompetitorAnalysis["washType"] {
+  const text = `${place.name ?? ""} ${(place.reviews ?? []).map(r => r.text ?? "").join(" ")}`.toLowerCase();
+  const kw = COMPETITION_BENCHMARKS.washTypeKeywords;
+  if (kw.express.some((k)     => text.includes(k))) return "express";
+  if (kw.fullService.some((k) => text.includes(k))) return "full-service";
+  if (kw.iba.some((k)         => text.includes(k))) return "iba";
+  if (kw.selfServe.some((k)   => text.includes(k))) return "self-serve";
+  return "unknown";
+}
+
+// ── OSM Proximity fetch — calls Overpass directly (no internal HTTP round-trip) ─
+async function fetchProximityData(lat: number, lng: number): Promise<ProximityData | null> {
+  try {
+    return await fetchProximityFromOverpass(lat, lng);
+  } catch {
+    return null;
+  }
 }
 
 // ── Investment suggestion engine ──────────────────────────────────────────────
@@ -428,16 +466,15 @@ export async function POST(req: NextRequest) {
 
     const { lat: centerLat, lng: centerLng } = coordinates;
 
-    // ── Fetch TomTom, wages, BLS PPI, ATTOM, OSM, and Census in parallel ─────
-    const [wageRates, tomtomData, constructionPPI, parcelData, osmBuilding, censusData] = await Promise.all([
+    // ── Fetch TomTom, wages, BLS PPI, ATTOM, OSM, Census, and Proximity in parallel ─
+    const [wageRates, tomtomData, constructionPPI, parcelData, osmBuilding, censusData, proximityData] = await Promise.all([
       getWageRates(countryCode),
       fetchTomTomData(centerLat, centerLng, TOMTOM_API_KEY, radiusMiles),
       fetchBLSConstructionPPI(),
       countryCode === "US" ? fetchATTOMParcel(centerLat, centerLng, ATTOM_API_KEY) : Promise.resolve(null),
-      // OSM building footprint — free, US + worldwide
       fetchOSMBuilding(centerLat, centerLng),
-      // Census only available for US — returns null for non-US addresses
       countryCode === "US" ? fetchCensusData(centerLat, centerLng) : Promise.resolve(null),
+      fetchProximityData(centerLat, centerLng),
     ]);
 
     // Merge OSM polygon into parcel data if ATTOM returned an empty polygon
@@ -464,7 +501,9 @@ export async function POST(req: NextRequest) {
       .map((place) => {
         const distMiles = calcDistanceMiles(centerLat, centerLng, place.geometry.location.lat, place.geometry.location.lng);
         const estimatedVolume = estimateVolumeFromReviews(place.user_ratings_total ?? 0, place.rating ?? 0);
-        return analyzeCompetitor(place, parseFloat(distMiles.toFixed(2)), estimatedVolume);
+        const hasMembership = detectMembership(place);
+        const washType = classifyWashType(place);
+        return analyzeCompetitor(place, parseFloat(distMiles.toFixed(2)), estimatedVolume, hasMembership, washType);
       })
       .sort((a, b) => a.distanceMiles - b.distanceMiles);
 
@@ -564,8 +603,12 @@ export async function POST(req: NextRequest) {
     );
     const financialViable = financial.year1EBITDA > 0;
 
-    // Scoring
-    const score = calculateLocationScore(competitors, trafficSignals, financialViable);
+    // Scoring — now passes TomTom trafficFlow + Census for Site Fundamentals
+    const score = calculateLocationScore(
+      competitors, trafficSignals, financialViable,
+      tomtomData.trafficFlow.status === "live" ? tomtomData.trafficFlow : null,
+      censusData,
+    );
 
     // Insights, recommendations, and investment suggestion
     const reviewInsights       = buildReviewInsights(competitors);
@@ -596,6 +639,7 @@ export async function POST(req: NextRequest) {
       parcel: parcelData ?? undefined,
       osmBuilding: osmBuilding ?? undefined,
       census: censusData ?? undefined,
+      proximity: proximityData ?? undefined,
       dataSources: {
         competitors:
           `Google Places API — live data fetched at time of analysis within a ${displayRadiusMiles}-mile radius ` +
@@ -669,6 +713,10 @@ export async function POST(req: NextRequest) {
               `Reachable Range v1 (5/10/15-min drive-time isochrones with live traffic) · ` +
               `Traffic Incidents v5 (live closures, roadworks, and hazards within ${(radiusMiles * 0.5 * 1.609).toFixed(1)}km).`
             : "Not available — TOMTOM_API_KEY not configured. Vehicle count will be a density proxy only.",
+        proximity:
+          proximityData?.status === "live"
+            ? proximityData.osmSource
+            : "OSM Overpass unavailable — proximity data not available.",
         demographics:
           censusData?.status === "live"
             ? `US Census Bureau ACS 5-Year Estimates 2024 (2020–2024), via Census Reporter. ` +

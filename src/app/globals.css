@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 :root {
@@ -111,3 +116,41 @@ body {
 .verdict-go     { text-shadow: 0 0 30px rgba(16, 185, 129, 0.5); }
 .verdict-caution { text-shadow: 0 0 30px rgba(245, 158, 11, 0.5); }
 .verdict-nogo   { text-shadow: 0 0 30px rgba(239, 68, 68, 0.5); }
+
+/* ─── Print / PDF export ───────────────────────────────── */
+@media print {
+  /* Force white background for readability */
+  body, .hero-bg { background: #fff !important; color: #1a1a1a !important; }
+
+  /* Hide entire sticky header (tabs + action buttons) */
+  header { display: none !important; }
+
+  /* Hide interactive-only elements */
+  .print-hide { display: none !important; }
+
+  /* Show print-only header */
+  .print-only { display: block !important; }
+
+  /* Keep sections from splitting across pages */
+  section { page-break-inside: avoid; break-inside: avoid; margin-bottom: 16px; }
+
+  /* Remove shadows and translucent backgrounds */
+  * { box-shadow: none !important; text-shadow: none !important; }
+
+  /* Lighten dark card backgrounds */
+  [class*="bg-slate-7"], [class*="bg-slate-8"] {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Fix text contrast */
+  .text-slate-400, .text-slate-500 { color: #475569 !important; }
+  .text-slate-300 { color: #334155 !important; }
+  .text-white { color: #0f172a !important; }
+
+  /* Ensure charts aren't cut off */
+  canvas, svg { max-width: 100% !important; }
+}
+
+/* Only visible when printing */
+.print-only { display: none; }

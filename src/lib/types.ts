@@ -53,6 +53,8 @@ export interface CompetitorAnalysis {
   strengthScore: number;
   threatLevel: "LOW" | "MEDIUM" | "HIGH";
   estimatedVolume: EstimatedVolume;
+  hasMembership: boolean | null;   // null = could not determine
+  washType: "express" | "full-service" | "iba" | "self-serve" | "unknown";
 }
 
 export interface TrafficSignals {
@@ -66,6 +68,26 @@ export interface TrafficSignals {
   trafficEstimationMethod?: string;
 }
 
+export interface SiteFundamentalsDimension {
+  score: number;
+  rating: string;
+  color: string;
+  bg: string;
+  border: string;
+  text: string;
+  detail: string;
+}
+
+export interface SiteFundamentalsScore {
+  traffic:       SiteFundamentalsDimension;
+  demographics:  SiteFundamentalsDimension;
+  competition:   SiteFundamentalsDimension;
+  accessibility: SiteFundamentalsDimension;
+  retailDraw:    SiteFundamentalsDimension;
+  visibility:    SiteFundamentalsDimension;
+  overall:       SiteFundamentalsDimension;
+}
+
 export interface LocationScore {
   overall: number;
   grade: "A" | "B" | "C" | "D" | "F";
@@ -77,10 +99,26 @@ export interface LocationScore {
     opportunity: number;
     market: number;
     financial: number;
+    accessibility: number;
   };
+  siteFundamentals: SiteFundamentalsScore;
   explanation: string;
   highlights: string[];
   risks: string[];
+}
+
+export interface PackageTierBreakdown {
+  tier: string;
+  priceUSD: number;
+  sharePct: number;
+  annualCars: number;
+  annualRevenueUSD: number;
+}
+
+export interface SeasonalProjection {
+  winter:       { months: string; sharePct: number; estimatedRevenueUSD: number };
+  springSummer: { months: string; sharePct: number; estimatedRevenueUSD: number };
+  fall:         { months: string; sharePct: number; estimatedRevenueUSD: number };
 }
 
 export interface FinancialProjection {
@@ -98,6 +136,11 @@ export interface FinancialProjection {
   breakEvenMonthlyRevenue: number;
   projections: YearlyProjection[];
   assumptions: FinancialAssumptions;
+  // New fields
+  membershipRevenue: number;
+  driveByRevenue: number;
+  packageBreakdown: PackageTierBreakdown[];
+  seasonalProjection: SeasonalProjection;
 }
 
 export interface YearlyProjection {
@@ -378,6 +421,18 @@ export interface CensusData {
   fetchedAt:  string;
 }
 
+export interface ProximityData {
+  transitStops: number;
+  retailAnchors: number;
+  diningPlaces: number;
+  parkingAreas: number;
+  amenityScore: number;   // 0-100
+  cotenantScore: number;  // 0-100 — weighted by anchor quality
+  osmSource: string;
+  fetchedAt: string;
+  status: "live" | "unavailable";
+}
+
 export interface SiteAnalysisResult {
   address: string;
   placeId: string;
@@ -395,6 +450,7 @@ export interface SiteAnalysisResult {
   budgetUSD?: number;
   tomtom?: TomTomSiteData;
   parcel?: RegridParcelData;
+  proximity?: ProximityData;
   osmBuilding?: {
     polygon:       Array<{ lat: number; lng: number }>;
     footprintSqFt: number | null;
@@ -419,6 +475,7 @@ export interface SiteAnalysisResult {
     competitorVolume:   string;
     tomtomTraffic:      string;
     demographics:       string;
+    proximity?:         string;
   };
 }
 
@@ -430,6 +487,8 @@ export interface ReviewInsights {
   missingServices: string[];
   premiumOpportunity: boolean;
   unlimitedPlanDemand: boolean;
+  marketGapScore: number;          // 0-100: how underserved is this market?
+  competitorsWithMembership: number;
 }
 
 export interface Recommendation {

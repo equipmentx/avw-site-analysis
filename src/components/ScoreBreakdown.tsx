@@ -9,6 +9,7 @@ interface ScoreBreakdownProps {
     opportunity: number;
     market: number;
     financial: number;
+    accessibility?: number;
   };
   coordinates?: { lat: number; lng: number };
   apiKey?: string;
@@ -47,6 +48,12 @@ const COMPONENT_META = {
     desc: "Projected returns vs costs",
     img: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=80&h=80&q=80",
   },
+  accessibility: {
+    label: "Road Accessibility",
+    color: "#06b6d4",
+    desc: "Speed, FRC class & ingress quality",
+    img: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=80&h=80&q=80",
+  },
 };
 
 export default function ScoreBreakdown({ components, coordinates, apiKey }: ScoreBreakdownProps) {
@@ -56,7 +63,7 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
     : null;
   const [triggered, setTriggered] = useState(false);
   const [animated, setAnimated] = useState<Record<string, number>>({
-    traffic: 0, competition: 0, opportunity: 0, market: 0, financial: 0,
+    traffic: 0, competition: 0, opportunity: 0, market: 0, financial: 0, accessibility: 0,
   });
   const ref = useRef<HTMLDivElement>(null);
 
@@ -82,11 +89,12 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
       const progress = Math.min(step / steps, 1);
       const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
       setAnimated({
-        traffic:     Math.round(components.traffic     * eased),
-        competition: Math.round(components.competition * eased),
-        opportunity: Math.round(components.opportunity * eased),
-        market:      Math.round(components.market      * eased),
-        financial:   Math.round(components.financial   * eased),
+        traffic:       Math.round(components.traffic       * eased),
+        competition:   Math.round(components.competition   * eased),
+        opportunity:   Math.round(components.opportunity   * eased),
+        market:        Math.round(components.market        * eased),
+        financial:     Math.round(components.financial     * eased),
+        accessibility: Math.round((components.accessibility ?? 0) * eased),
       });
       if (step >= steps) clearInterval(timer);
     }, duration / steps);
@@ -96,9 +104,9 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
 
   return (
     <div ref={ref} className="space-y-5">
-      {(Object.keys(components) as Array<keyof typeof components>).map((key) => {
-        const meta = COMPONENT_META[key];
-        const target = components[key];
+      {(Object.keys(components) as Array<keyof typeof components>).filter((key) => key !== "accessibility" || (components.accessibility ?? 0) > 0).map((key) => {
+        const meta = COMPONENT_META[key as keyof typeof COMPONENT_META];
+        const target = components[key] ?? 0;
         const current = animated[key];
         const strength = target >= 70 ? "Strong" : target >= 50 ? "Moderate" : "Weak";
         const strengthColor = target >= 70 ? "#10b981" : target >= 50 ? "#f59e0b" : "#ef4444";

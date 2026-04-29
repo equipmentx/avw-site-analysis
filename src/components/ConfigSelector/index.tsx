@@ -3,29 +3,16 @@
 import { useState } from "react";
 import {
   ChevronDown, Users, Clock, Maximize2,
-  RotateCcw, Eye, Grid3x3, ArrowRight, CheckCircle,
-  Layers, Zap,
+  Grid3x3, ArrowRight, CheckCircle, Zap,
 } from "lucide-react";
+import MediaViewer from "./MediaViewer";
 import AerialDiagram from "./AerialDiagram";
-import ImageViewer from "./ImageViewer";
 import {
   CAR_WASH_CONFIGS,
   CONFIG_CATEGORIES,
   type CarWashConfig,
   type ConfigCategory,
 } from "@/lib/carwashConfigs";
-
-type ViewMode = "perspective" | "aerial" | "interior" | "spin";
-
-// ── Image viewer (real photos per config) ─────────────────────────────────────
-
-function DiagramViewer({ config, mode }: { config: CarWashConfig; mode: ViewMode }) {
-  return (
-    <div className="w-full h-full relative">
-      <ImageViewer config={config} mode={mode} className="w-full h-full" />
-    </div>
-  );
-}
 
 // ── Left sidebar config card ───────────────────────────────────────────────────
 
@@ -94,7 +81,6 @@ interface Props {
 export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) {
   const initialConfig = CAR_WASH_CONFIGS.find((c) => c.id === selectedId) ?? CAR_WASH_CONFIGS[0];
   const [activeId, setActiveId]   = useState<string>(initialConfig.id);
-  const [viewMode, setViewMode]   = useState<ViewMode>("perspective");
   const [confirmed, setConfirmed] = useState(false);
 
   // Accordion: open categories (active config's category is always open)
@@ -132,13 +118,6 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
     setConfirmed(true);
     onSelect(activeId);
   };
-
-  const VIEW_TABS: Array<{ id: ViewMode; label: string; icon: React.ReactNode }> = [
-    { id: "perspective", label: "3D View",  icon: <Layers className="w-3.5 h-3.5" /> },
-    { id: "spin",        label: "360°",     icon: <RotateCcw className="w-3.5 h-3.5" /> },
-    { id: "aerial",      label: "Aerial",   icon: <Maximize2 className="w-3.5 h-3.5" /> },
-    { id: "interior",    label: "Interior", icon: <Eye className="w-3.5 h-3.5" /> },
-  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full h-full">
@@ -218,50 +197,10 @@ export default function ConfigSelector({ onSelect, onSkip, selectedId }: Props) 
       {/* ── Right panel ─────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 flex flex-col gap-4">
 
-        {/* View mode tabs */}
-        <div className="flex gap-1.5 bg-slate-900/60 rounded-xl p-1 border border-slate-700/30">
-          {VIEW_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setViewMode(tab.id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all
-                ${viewMode === tab.id
-                  ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-            >
-              {tab.icon}
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Image viewer */}
-        <div className="relative bg-slate-900/80 border border-slate-700/40 rounded-2xl overflow-hidden"
-          style={{ minHeight: "280px", height: "clamp(280px,40vw,400px)" }}>
-          <DiagramViewer config={config} mode={viewMode} />
-
-          {/* Config name overlay */}
-          <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-1.5">
-            <div className="text-white font-bold text-sm">{config.shortName}</div>
-            <div className="text-blue-300 text-[10px]">{config.categoryLabel}</div>
-          </div>
-
-          {/* Lot size badge */}
-          <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-sm rounded-lg px-2.5 py-1.5 text-right">
-            <div className="text-slate-300 text-[10px]">Minimum lot</div>
-            <div className="text-white font-bold text-xs">
-              {config.minLotWidthFt}×{config.minLotDepthFt}ft
-            </div>
-          </div>
-
-          {/* Spin hint */}
-          {viewMode === "spin" && (
-            <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-black/40 rounded-lg px-2 py-1">
-              <RotateCcw className="w-3 h-3 text-slate-400" />
-              <span className="text-[10px] text-slate-400">Drag to pan</span>
-            </div>
-          )}
+        {/* Cinematic video viewer */}
+        <div className="relative border border-slate-700/40 rounded-2xl overflow-hidden bg-black"
+          style={{ minHeight: "280px", height: "clamp(300px,42vw,460px)" }}>
+          <MediaViewer config={config} mode="video" className="w-full h-full" />
         </div>
 
         {/* Config name + tagline */}

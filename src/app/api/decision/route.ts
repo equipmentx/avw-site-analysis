@@ -84,7 +84,14 @@ function rulesDecision(
   const SELFSERVE_MIN_SQFT = 7_000;
 
   // ── Investment suggestion ───────────────────────────────────────────────────
-  const inv = result.investmentSuggestion;
+  // Guard: if the analyze route didn't produce an investment suggestion (shouldn't
+  // happen, but provides a safe fallback so rulesDecision never throws on undefined)
+  const inv = result.investmentSuggestion ?? {
+    minEstimateUSD: 0, maxEstimateUSD: 0, cityTier: "Unknown", countryCode: result.countryCode,
+    countryName: country.name, dataTimestamp: new Date().toISOString(), sourceNote: "Unavailable",
+    rationale: "", marketContext: "",
+    breakdown: { land: { min: 0, max: 0 }, construction: { min: 0, max: 0 }, equipment: { min: 0, max: 0 }, fees: { min: 0, max: 0 } },
+  };
 
   // ── Competitor volume analysis (SerpApi Popular Times) ─────────────────────
   const competitorsWithVolume = competitors.filter(
@@ -520,8 +527,29 @@ export async function POST(req: NextRequest) {
     // Convert budget to USD using provided exchange rate
     const budgetUSD = budget / (exchangeRate || 1);
 
+    // Validate required fields before entering the rules engine
+    if (!result.score || !result.financialProjection || !result.trafficSignals || !result.reviewInsights) {
+      console.error("[AVW/decision] Missing required result fields:", {
+        hasScore: !!result.score,
+        hasFinancial: !!result.financialProjection,
+        hasTraffic: !!result.trafficSignals,
+        hasReviewInsights: !!result.reviewInsights,
+        hasInvestmentSuggestion: !!result.investmentSuggestion,
+      });
+      return NextResponse.json({ error: "Analysis result is missing required fields — re-run the analysis." }, { status: 422 });
+    }
+
     // Rules-based engine always runs first
-    const decision = rulesDecision(result, budgetUSD, exchangeRate, config);
+    let decision: AiDecision;
+    try {
+      decision = rulesDecision(result, budgetUSD, exchangeRate, config);
+    } catch (rulesErr: any) {
+      console.error("[AVW/decision] rulesDecision threw:", rulesErr?.message ?? String(rulesErr));
+      console.error("[AVW/decision] result.investmentSuggestion defined:", !!result.investmentSuggestion);
+      console.error("[AVW/decision] result.score.overall:", result.score?.overall);
+      console.error("[AVW/decision] result.financialProjection.year1EBITDA:", result.financialProjection?.year1EBITDA);
+      throw rulesErr;
+    }
 
     // Extract TomTom variables for use in AI prompts below
     const _tomtom      = result.tomtom;

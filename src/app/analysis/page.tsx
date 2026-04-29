@@ -7,11 +7,12 @@ import {
   TrendingUp, Users, DollarSign, Target, Lightbulb,
   CheckCircle, XCircle, ChevronDown, ChevronUp,
   Share2, Navigation, Maximize2, FileText, BarChart2,
-  Map, Activity,
+  Map, Activity, Printer,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
 import { CURRENCIES } from "@/lib/types";
+import { generatePrintReport } from "@/lib/printReport";
 import { getConfig } from "@/lib/carwashConfigs";
 import ScoreRing from "@/components/ScoreRing";
 import ScoreBreakdown from "@/components/ScoreBreakdown";
@@ -62,6 +63,14 @@ const DemographicsPanel = dynamic(
 );
 const WashVolumeEstimate = dynamic(
   () => import("@/components/WashVolumeEstimate"),
+  { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
+);
+const SiteFundamentalsPanel = dynamic(
+  () => import("@/components/SiteFundamentalsPanel"),
+  { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
+);
+const PsychographicPanel = dynamic(
+  () => import("@/components/PsychographicPanel"),
   { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
 );
 
@@ -197,12 +206,21 @@ function AnalysisPageInner() {
   const initialRadius = parseFloat(searchParams.get("radius") ?? "5") || 5;
   const configId     = searchParams.get("config") ?? null;
 
-  const [result,       setResult]       = useState<SiteAnalysisResult | null>(null);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState("");
-  const [activeTab,    setActiveTab]    = useState<TabId>("overview");
+  const [result,    setResult]    = useState<SiteAnalysisResult | null>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState("");
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [activeRadius, setActiveRadius] = useState(initialRadius);
   const hasFetched = useRef(false);
+
+  const handlePrint = () => {
+    if (!result) return;
+    const html = generatePrintReport(result, currency, rate, configId);
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+  };
 
   const [currency, setCurrency] = useState<CurrencyOption>(
     CURRENCIES.find((c) => c.code === currCode) ?? CURRENCIES[0]
@@ -325,6 +343,13 @@ function AnalysisPageInner() {
               {score.verdict}
             </div>
             <button
+              onClick={handlePrint}
+              className="p-2 rounded-lg bg-slate-600/40 hover:bg-slate-600 text-slate-400 hover:text-white transition-colors"
+              title="Export PDF — opens full analysis report in a new tab for printing"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => navigator.clipboard?.writeText(window.location.href)}
               className="p-2 rounded-lg bg-slate-600/40 hover:bg-slate-600 text-slate-400 hover:text-white transition-colors"
               title="Copy link"
@@ -360,7 +385,7 @@ function AnalysisPageInner() {
         {/* ════════════════════════════════════════════════════════════
             TAB 1 — OVERVIEW
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "overview" && (
+        {(activeTab === "overview") && (
           <>
             {/* Selected format badge */}
             {configId && (() => {
@@ -457,7 +482,18 @@ function AnalysisPageInner() {
               />
             </Section>
 
-            {/* Quick nav cards to other tabs */}
+            {/* Site Fundamentals Dashboard */}
+            {score.siteFundamentals && (
+              <Section
+                title="Site Fundamentals Dashboard"
+                subtitle="7-dimension scoring: Traffic · Demographics · Competition · Accessibility · Retail Draw · Visibility — ICA 2024 methodology"
+                icon={<BarChart2 className="w-5 h-5 text-emerald-400" />}
+              >
+                <SiteFundamentalsPanel fundamentals={score.siteFundamentals} />
+              </Section>
+            )}
+
+            {/* Quick nav cards to other tabs — hidden in print mode */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 { tab: "demographics" as TabId, label: "Market Demographics", icon: "🏛️",
@@ -491,7 +527,7 @@ function AnalysisPageInner() {
         {/* ════════════════════════════════════════════════════════════
             TAB 2 — DEMOGRAPHICS
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "demographics" && (
+        {(activeTab === "demographics") && (
           <>
             {result.census ? (
               <Section
@@ -525,13 +561,26 @@ function AnalysisPageInner() {
                 aadt={trafficSignals.estimatedDailyTraffic}
               />
             </Section>
+
+            {/* Consumer Behaviour Proxies */}
+            <Section
+              title="Consumer Behaviour Signals"
+              subtitle="Vehicle ownership · cotenant density · amenity access — derived from Census ACS, Google Places & OpenStreetMap"
+              icon={<Users className="w-5 h-5 text-cyan-400" />}
+            >
+              <PsychographicPanel
+                census={result.census}
+                proximity={result.proximity}
+                trafficSignals={trafficSignals}
+              />
+            </Section>
           </>
         )}
 
         {/* ════════════════════════════════════════════════════════════
             TAB 3 — TRAFFIC & ACCESS
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "traffic" && (
+        {(activeTab === "traffic") && (
           <>
             {result.tomtom && (
               <Section
@@ -592,7 +641,7 @@ function AnalysisPageInner() {
         {/* ════════════════════════════════════════════════════════════
             TAB 4 — COMPETITIVE LANDSCAPE
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "competitive" && (
+        {(activeTab === "competitive") && (
           <>
             {/* ── Competition map — site + all competitor pins ─────────── */}
             <Section
@@ -649,6 +698,8 @@ function AnalysisPageInner() {
                     { label: "Avg Competitor Rating", value: `${reviewInsights.avgCompetitorRating.toFixed(1)}★` },
                     { label: "Reviews Analyzed",      value: reviewInsights.totalReviewsAnalyzed.toString() },
                     { label: "Complaint Types",       value: reviewInsights.dominantComplaints.length.toString() },
+                    ...(reviewInsights.marketGapScore != null ? [{ label: "Market Gap Score", value: `${reviewInsights.marketGapScore}/100` }] : []),
+                    ...(reviewInsights.competitorsWithMembership != null ? [{ label: "With Membership", value: `${reviewInsights.competitorsWithMembership}/${competitors.length}` }] : []),
                   ].map(({ label, value }) => (
                     <div key={label} className="bg-slate-700/40 rounded-xl px-4 py-2 text-center">
                       <div className="text-white font-black text-2xl">{value}</div>
@@ -678,7 +729,7 @@ function AnalysisPageInner() {
         {/* ════════════════════════════════════════════════════════════
             TAB 5 — SITE & PARCEL
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "site" && (
+        {(activeTab === "site") && (
           <>
             <Section
               title="Location Map"
@@ -731,7 +782,7 @@ function AnalysisPageInner() {
         {/* ════════════════════════════════════════════════════════════
             TAB 6 — FINANCIALS
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "financials" && (
+        {(activeTab === "financials") && (
           <>
             <Section
               title="Suggested Investment Range"
@@ -868,7 +919,7 @@ function AnalysisPageInner() {
         {/* ════════════════════════════════════════════════════════════
             TAB 7 — INVESTMENT DECISION
         ═══════════════════════════════════════════════════════════════ */}
-        {activeTab === "decision" && (
+        {(activeTab === "decision") && (
           <>
             {/* Recommendations */}
             <Section

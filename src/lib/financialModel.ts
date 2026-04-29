@@ -17,8 +17,9 @@
  * 5. The budget drives financing: 20% down payment, 80% bank loan at 7% for 20 years.
  */
 
-import type { FinancialProjection, FinancialAssumptions, YearlyProjection } from "./types";
+import type { FinancialProjection, FinancialAssumptions, YearlyProjection, PackageTierBreakdown, SeasonalProjection } from "./types";
 import type { WageRates } from "./iloWages";
+import { FINANCIAL_BENCHMARKS } from "./industryBenchmarks";
 
 // ─── Car Wash Format Tiers ────────────────────────────────────────────────────
 // Budget determines what you can realistically build.
@@ -351,6 +352,39 @@ export function runFinancialModel(
   const year3 = projections[2];
   const year5 = projections[4];
 
+  // ── Package tier breakdown (from ICA_BENCHMARKS distribution) ─────────────
+  const year1DriveBy = format.feasible
+    ? Math.round(year1.revenue * (1 - FINANCIAL_BENCHMARKS.membershipRevSharePct / 100))
+    : 0;
+  const year1Membership = format.feasible
+    ? Math.round(year1.revenue * (FINANCIAL_BENCHMARKS.membershipRevSharePct / 100))
+    : 0;
+
+  const year1DailyDriveByCars = Math.round(estimatedDailyTraffic * format.captureRate);
+  const year1AnnualDriveByCars = year1DailyDriveByCars * TRAFFIC.daysPerMonth * 12;
+
+  const packageBreakdown: PackageTierBreakdown[] = format.feasible
+    ? PRICING_TIERS.map((tier, i) => {
+        const dist = FINANCIAL_BENCHMARKS.packageDistribution[i];
+        const annualCars = Math.round(year1AnnualDriveByCars * dist.sharePct);
+        return {
+          tier: tier.name,
+          priceUSD: tier.price,
+          sharePct: dist.sharePct,
+          annualCars,
+          annualRevenueUSD: Math.round(annualCars * tier.price),
+        };
+      })
+    : [];
+
+  // ── Seasonal projection (from ICA benchmarks) ─────────────────────────────
+  const { seasonality } = FINANCIAL_BENCHMARKS;
+  const seasonalProjection: SeasonalProjection = {
+    winter:       { months: seasonality.winter.months,       sharePct: seasonality.winter.sharePct,       estimatedRevenueUSD: Math.round(year1.revenue * seasonality.winter.sharePct) },
+    springSummer: { months: seasonality.springSummer.months, sharePct: seasonality.springSummer.sharePct, estimatedRevenueUSD: Math.round(year1.revenue * seasonality.springSummer.sharePct) },
+    fall:         { months: seasonality.fall.months,         sharePct: seasonality.fall.sharePct,         estimatedRevenueUSD: Math.round(year1.revenue * seasonality.fall.sharePct) },
+  };
+
   // ── Payback (how many years to recover down payment) ──────────────────────
   let cumulative = -downPayment;
   let paybackYears = 0;
@@ -412,6 +446,10 @@ export function runFinancialModel(
     breakEvenMonthlyRevenue: breakEvenMonthly,
     projections,
     assumptions,
+    membershipRevenue:       year1Membership,
+    driveByRevenue:          year1DriveBy,
+    packageBreakdown,
+    seasonalProjection,
   };
 }
 

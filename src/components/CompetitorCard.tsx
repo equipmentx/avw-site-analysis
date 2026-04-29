@@ -61,8 +61,16 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
+const WASH_TYPE_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  express:      { label: "Express",      color: "text-blue-300",    bg: "bg-blue-500/15",    border: "border-blue-500/30" },
+  "full-service":{ label: "Full Service", color: "text-violet-300",  bg: "bg-violet-500/15",  border: "border-violet-500/30" },
+  iba:          { label: "In-Bay Auto",  color: "text-cyan-300",    bg: "bg-cyan-500/15",    border: "border-cyan-500/30" },
+  "self-serve": { label: "Self-Serve",   color: "text-yellow-300",  bg: "bg-yellow-500/15",  border: "border-yellow-500/30" },
+  unknown:      { label: "Carwash",      color: "text-slate-300",   bg: "bg-slate-600/20",   border: "border-slate-600/30" },
+};
+
 export default function CompetitorCard({ competitor, index }: CompetitorCardProps) {
-  const { place, distanceMiles, sentiment, strengthScore, threatLevel } = competitor;
+  const { place, distanceMiles, sentiment, strengthScore, threatLevel, hasMembership, washType } = competitor;
   const threat = THREAT_STYLES[threatLevel];
   const reviewCount = place.user_ratings_total ?? 0;
 
@@ -122,14 +130,36 @@ export default function CompetitorCard({ competitor, index }: CompetitorCardProp
 
       {/* Body */}
       <div className="p-5 flex flex-col gap-4 flex-1">
-        {/* Name and address */}
+        {/* Name, address, and intel badges */}
         <div>
           <h3 className="text-white font-bold text-base leading-tight mb-1 line-clamp-2">
             {place.name}
           </h3>
-          <div className="flex items-center gap-1 text-slate-300 text-xs">
+          <div className="flex items-center gap-1 text-slate-300 text-xs mb-2">
             <MapPin className="w-3 h-3 flex-shrink-0" />
             <span className="line-clamp-1">{place.vicinity}</span>
+          </div>
+
+          {/* Wash type + membership badges */}
+          <div className="flex flex-wrap gap-1.5">
+            {washType && (() => {
+              const wt = WASH_TYPE_META[washType] ?? WASH_TYPE_META.unknown;
+              return (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${wt.bg} ${wt.color} ${wt.border}`}>
+                  🚗 {wt.label}
+                </span>
+              );
+            })()}
+            {hasMembership === true && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                ✓ Membership
+              </span>
+            )}
+            {hasMembership === false && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-slate-600/20 text-slate-400 border-slate-600/30">
+                No Membership
+              </span>
+            )}
           </div>
         </div>
 
