@@ -207,6 +207,7 @@ async function fetchPlaceDetails(placeId: string): Promise<PlaceResult | null> {
 async function geocodeAddress(address: string): Promise<{
   lat: number; lng: number; formattedAddress: string;
   countryCode: string; countryName: string; city: string;
+  locationType: string;
 } | null> {
   const url = new URL(`${BASE_URL}/geocode/json`);
   url.searchParams.set("address", address);
@@ -214,7 +215,19 @@ async function geocodeAddress(address: string): Promise<{
   const data = await gFetch(url.toString());
   if (!data?.results?.[0]) return null;
 
-  const components = data.results[0].address_components ?? [];
+  const result     = data.results[0];
+  const components = result.address_components ?? [];
+  const locationType = result.geometry?.location_type ?? "APPROXIMATE";
+
+  const hasStreetNumber = components.some((c: any) => c.types.includes("street_number"));
+  const hasRoute        = components.some((c: any) => c.types.includes("route"));
+  const isPrecise       = hasStreetNumber && hasRoute;
+
+  // Reject pure city/region/country-level geocode results
+  if (!isPrecise || locationType === "APPROXIMATE") {
+    return null;
+  }
+
   const countryComp = components.find((c: any) => c.types.includes("country"));
   const cityComp    = components.find((c: any) => c.types.includes("locality"))
                    ?? components.find((c: any) => c.types.includes("administrative_area_level_1"));
@@ -223,8 +236,8 @@ async function geocodeAddress(address: string): Promise<{
   const countryName = getCountry(countryCode).name ?? countryComp?.long_name ?? "Unknown";
   const city        = cityComp?.long_name ?? "this city";
 
-  const { lat, lng } = data.results[0].geometry.location;
-  return { lat, lng, formattedAddress: data.results[0].formatted_address, countryCode, countryName, city };
+  const { lat, lng } = result.geometry.location;
+  return { lat, lng, formattedAddress: result.formatted_address, countryCode, countryName, city, locationType };
 }
 
 // ── Competitor volume — derived from Google review count ──────────────────────
@@ -455,7 +468,9 @@ export async function POST(req: NextRequest) {
       coordinates = { lat, lng };
     } else if (address) {
       const geo = await geocodeAddress(address);
-      if (!geo) return NextResponse.json({ error: "Could not geocode address" }, { status: 400 });
+      if (!geo) return NextResponse.json({
+        error: "Address is not specific enough. Please enter a full street address (including street number and street name) rather than a city or region name."
+      }, { status: 400 });
       coordinates    = { lat: geo.lat, lng: geo.lng };
       resolvedAddress = geo.formattedAddress;
       countryCode    = geo.countryCode;

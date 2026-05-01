@@ -23,12 +23,18 @@ function ConfigurePage() {
   const budget      = params.get("budget")   ?? "";
   const currCode    = params.get("currency") ?? "USD";
   const radius      = params.get("radius")   ?? "5";
+  const lat         = params.get("lat")      ?? "";
+  const lng         = params.get("lng")      ?? "";
+  const placeId     = params.get("placeId")  ?? "";
 
   const currency = CURRENCIES.find((c) => c.code === currCode) ?? CURRENCIES[0];
 
   const buildAnalysisUrl = (configId: string | null) => {
     const p = new URLSearchParams({ address, budget, currency: currCode, radius });
     if (configId) p.set("config", configId);
+    if (lat)     p.set("lat",     lat);
+    if (lng)     p.set("lng",     lng);
+    if (placeId) p.set("placeId", placeId);
     return `/analysis?${p.toString()}`;
   };
 

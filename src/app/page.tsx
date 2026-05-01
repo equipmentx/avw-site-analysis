@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   MapPin, TrendingUp, Star, DollarSign, BarChart2,
-  CheckCircle, ChevronRight, Zap, Shield,
+  CheckCircle, ChevronRight, Zap, Shield, Building2,
 } from "lucide-react";
 import CurrencySelector from "@/components/CurrencySelector";
 import { CURRENCIES, type CurrencyOption } from "@/lib/types";
@@ -200,8 +200,13 @@ export default function LandingPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const investmentInputRef = useRef<HTMLInputElement>(null);
   const [address, setAddress] = useState("");
-  const [budget, setBudget] = useState("");
+  const [placeSelected, setPlaceSelected] = useState(false);
+  const [selectedLat, setSelectedLat] = useState<number | null>(null);
+  const [selectedLng, setSelectedLng] = useState<number | null>(null);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [investment, setInvestment] = useState("");
   const [radiusMiles, setRadiusMiles] = useState(5);
   const [loading, setLoading] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
@@ -259,22 +264,48 @@ export default function LandingPage() {
   useEffect(() => {
     if (!mapsReady || !inputRef.current || autocompleteRef.current) return;
     autocompleteRef.current = new window.google.maps.places.Autocomplete(
-      inputRef.current, { types: ["geocode", "establishment"] }
+      inputRef.current,
+      { types: ["address", "establishment"] }
     );
     autocompleteRef.current.addListener("place_changed", () => {
       const place = autocompleteRef.current!.getPlace();
-      if (place.formatted_address) setAddress(place.formatted_address);
-      else if (place.name) setAddress(place.name);
+      const lat = place.geometry?.location?.lat() ?? null;
+      const lng = place.geometry?.location?.lng() ?? null;
+      const pid = place.place_id ?? null;
+      setSelectedLat(lat);
+      setSelectedLng(lng);
+      setSelectedPlaceId(pid);
+      if (place.formatted_address) {
+        setAddress(place.formatted_address);
+        setPlaceSelected(true);
+      } else if (place.name) {
+        setAddress(place.name);
+        setPlaceSelected(true);
+      }
     });
   }, [mapsReady]);
 
   const handleAnalyze = () => {
     const val = inputRef.current?.value || address;
-    if (!val.trim()) { setError("Please enter an address or location."); return; }
+    if (!val.trim()) {
+      setError("Please enter a specific address — street number, city, and state.");
+      return;
+    }
+    if (!placeSelected) {
+      setError("Please select a specific address from the dropdown. A city name alone is not precise enough.");
+      return;
+    }
+    if (!investment.trim() || isNaN(Number(investment.replace(/[,$]/g, ""))) || Number(investment.replace(/[,$]/g, "")) <= 0) {
+      setError("Please enter your investment amount before continuing.");
+      return;
+    }
     setError("");
     setLoading(true);
-    const params = new URLSearchParams({ address: val, currency: currency.code, radius: radiusMiles.toString() });
-    if (budget) params.set("budget", budget);
+    const cleanInvestment = investment.replace(/[,$]/g, "");
+    const params = new URLSearchParams({ address: val, currency: currency.code, radius: radiusMiles.toString(), budget: cleanInvestment });
+    if (selectedLat !== null) params.set("lat", selectedLat.toString());
+    if (selectedLng !== null) params.set("lng", selectedLng.toString());
+    if (selectedPlaceId)      params.set("placeId", selectedPlaceId);
     router.push(`/configure?${params.toString()}`);
   };
 
@@ -345,13 +376,39 @@ export default function LandingPage() {
                 <input
                   ref={inputRef}
                   type="text"
-                  placeholder="Enter address, city, or location..."
+                  placeholder="Enter a specific street address (e.g. 1420 N Harbor Blvd, Fullerton, CA)"
                   className="flex-1 bg-transparent text-white placeholder-slate-400 text-base outline-none"
                   defaultValue={address}
                   onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
-                  onChange={(e) => setAddress(e.target.value)}
+                  onChange={(e) => { setAddress(e.target.value); setPlaceSelected(false); setSelectedLat(null); setSelectedLng(null); setSelectedPlaceId(null); }}
                 />
               </div>
+              {/* Investment amount — required */}
+              <div
+                className="flex items-center gap-3 px-4 py-3 border-t border-slate-700/40 cursor-text"
+                onClick={() => investmentInputRef.current?.focus()}
+              >
+                <Building2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                <div className="flex-1 flex items-center gap-2">
+                  <span className="text-slate-400 text-sm whitespace-nowrap">Investment amount</span>
+                  <input
+                    ref={investmentInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g. 3,500,000"
+                    value={investment}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^0-9]/g, "");
+                      setInvestment(raw ? Number(raw).toLocaleString() : "");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
+                    className="flex-1 bg-transparent text-white placeholder-slate-500 text-sm outline-none text-right"
+                  />
+                  <span className="text-slate-500 text-xs">{currency.symbol}</span>
+                </div>
+                <span className="text-red-400 text-xs font-semibold">Required</span>
+              </div>
+
               <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-700/40">
                 <CurrencySelector selected={currency} onChange={handleCurrencyChange} compact />
                 <span className="text-slate-500 text-xs">Investment ranges shown per format on the next step</span>
@@ -467,8 +524,8 @@ export default function LandingPage() {
             {[
               {
                 step: "01",
-                title: "Enter a US Address",
-                desc: "Type any address or landmark. We geocode it and pull the county parcel record, traffic data, and nearby competitor listings.",
+                title: "Enter a Specific Address",
+                desc: "Enter a full street address and your investment amount. We require a precise location — not just a city — to pull accurate parcel records, traffic data, and competitor listings.",
                 color: "blue",
               },
               {

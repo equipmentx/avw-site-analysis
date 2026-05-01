@@ -205,6 +205,9 @@ function AnalysisPageInner() {
   const currCode     = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
   const initialRadius = parseFloat(searchParams.get("radius") ?? "5") || 5;
   const configId     = searchParams.get("config") ?? null;
+  const paramLat     = searchParams.get("lat")     ?? "";
+  const paramLng     = searchParams.get("lng")     ?? "";
+  const paramPlaceId = searchParams.get("placeId") ?? "";
 
   const [result,    setResult]    = useState<SiteAnalysisResult | null>(null);
   const [loading,   setLoading]   = useState(true);
@@ -257,7 +260,14 @@ function AnalysisPageInner() {
       const res  = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, budget, radiusMiles: effectiveRadius, configId }),
+        body: JSON.stringify({
+          address,
+          budget,
+          radiusMiles: effectiveRadius,
+          configId,
+          ...(paramLat && paramLng ? { lat: parseFloat(paramLat), lng: parseFloat(paramLng) } : {}),
+          ...(paramPlaceId ? { placeId: paramPlaceId } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Analysis failed");
