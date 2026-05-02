@@ -256,34 +256,28 @@ export default function PsychographicPanel({ census, proximity, trafficSignals }
             </div>
           </div>
 
-          {/* OSM Proximity */}
-          <div className={`bg-slate-800/40 border rounded-xl p-4 ${proximity?.status === "live" ? "border-slate-700/30" : "border-slate-700/20"}`}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-lg">🗺️</span>
-              <div>
-                <div className="text-white text-sm font-bold">OSM Proximity Data</div>
-                <div className="text-slate-400 text-xs">
-                  {proximity?.status === "live" ? "OpenStreetMap Overpass API · live" : "Unavailable"}
+          {/* OSM Proximity — only shown when live data was fetched */}
+          {proximity?.status === "live" && (
+            <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-lg">🗺️</span>
+                <div>
+                  <div className="text-white text-sm font-bold">OSM Proximity Data</div>
+                  <div className="text-slate-400 text-xs">OpenStreetMap Overpass API · live</div>
                 </div>
               </div>
-            </div>
-            {proximity?.status === "live" ? (
               <div className="space-y-0">
-                <SignalRow icon="🚌" label="Transit Stops"    value={transitStops.toString()}   color={transitStops > 0 ? "text-blue-300" : "text-slate-500"} />
-                <SignalRow icon="🏪" label="Retail Anchors"   value={retailAnchors.toString()}  color={retailAnchors >= 3 ? "text-emerald-300" : retailAnchors > 0 ? "text-amber-300" : "text-slate-500"} />
-                <SignalRow icon="🍽️" label="Dining Places"    value={diningPlaces.toString()}   color={diningPlaces >= 5 ? "text-emerald-300" : diningPlaces > 0 ? "text-amber-300" : "text-slate-500"} />
-                <SignalRow icon="🅿️" label="Parking Areas"    value={(proximity.parkingAreas).toString()} color="text-slate-300" />
-                <SignalRow icon="🏙️" label="Amenity Score"    value={`${amenityScore}/100`}
+                <SignalRow icon="🚌" label="Transit Stops"  value={transitStops.toString()}  color={transitStops > 0 ? "text-blue-300" : "text-slate-500"} />
+                <SignalRow icon="🏪" label="Retail Anchors" value={retailAnchors.toString()} color={retailAnchors >= 3 ? "text-emerald-300" : retailAnchors > 0 ? "text-amber-300" : "text-slate-500"} />
+                <SignalRow icon="🍽️" label="Dining Places"  value={diningPlaces.toString()}  color={diningPlaces >= 5 ? "text-emerald-300" : diningPlaces > 0 ? "text-amber-300" : "text-slate-500"} />
+                <SignalRow icon="🅿️" label="Parking Areas"  value={proximity.parkingAreas.toString()} color="text-slate-300" />
+                <SignalRow icon="🏙️" label="Amenity Score"  value={`${amenityScore}/100`}
                   color={amenityScore != null && amenityScore >= 60 ? "text-emerald-300" : amenityScore != null && amenityScore >= 35 ? "text-amber-300" : "text-red-300"} />
-                <SignalRow icon="🛍️" label="Cotenant Score"   value={`${cotenantScore}/100`}
+                <SignalRow icon="🛍️" label="Cotenant Score" value={`${cotenantScore}/100`}
                   color={cotenantScore != null && cotenantScore >= 60 ? "text-emerald-300" : cotenantScore != null && cotenantScore >= 30 ? "text-amber-300" : "text-red-300"} />
               </div>
-            ) : (
-              <div className="text-slate-500 text-xs text-center py-4">
-                OSM proximity data unavailable at this location.
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

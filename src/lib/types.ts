@@ -433,6 +433,64 @@ export interface ProximityData {
   status: "live" | "unavailable";
 }
 
+// ── Competitor Intelligence ───────────────────────────────────────────────────
+export interface CompetitorTrafficData {
+  name:                 string;
+  placeId:              string;
+  distanceMiles:        number;
+  annualCarsEstimate:   number | null;   // sixMonthEstimate × 2 (from Google reviews proxy)
+  marketSharePct:       number | null;   // % of total estimated area market
+  roadVpd:              number | null;   // TomTom AADT at competitor's nearest road
+  trafficVariancePct:   number | null;   // (competitorVpd − siteVpd) / siteVpd × 100
+  trafficAdvantageFlag: boolean;         // true if competitor road is >15% busier than site road
+}
+
+export interface CompetitorIntelligence {
+  siteRoadVpd: number;                  // TomTom AADT at the analyzed site's road
+  marketVolume: {
+    siteAnnualCarsEstimate:   number;   // projected annual cars washed at this site
+    totalAreaCarsEstimate:    number;   // sum of site + all competitors with estimates
+    siteMarketSharePct:       number;   // site's % of total
+    competitors:              CompetitorTrafficData[];
+    dominantPlayerName:       string | null;
+    dominantPlayerSharePct:   number | null;
+  };
+  flaggedCount:  number;                // competitors with trafficAdvantageFlag = true
+  trafficFetched: boolean;              // false if TomTom key not set
+  fetchedAt:     string;
+}
+
+// ── Drive-Time Trade Area Demographics ────────────────────────────────────────
+// Census ACS data aggregated for each TomTom isochrone zone (5/10/15 min drive).
+// Replaces the simple radius-circle with actual drive-time trade area boundaries.
+export interface TradeAreaZoneData {
+  driveTimeMinutes: number;
+  label: string;           // e.g. "5-Min Drive Zone"
+  population: number;
+  households: number;
+  avgHouseholdSize: number;
+  laborForceParticipationPct: number;
+  unemploymentRatePct: number;
+  hhIncomeOver35kPct: number;
+  vehiclesPerHousehold: number;
+  noVehiclePct: number;
+  renterPct: number;
+  totalVehiclesEstimate: number;
+  tractsAnalyzed: number;  // number of unique census tracts found in this zone
+  benchmarksMet: number;   // 0-3 ICA benchmarks met
+  benchmarksTotal: number;
+  source: string;
+}
+
+export interface TradeAreaDemographics {
+  fiveMin:    TradeAreaZoneData | null;
+  tenMin:     TradeAreaZoneData | null;
+  fifteenMin: TradeAreaZoneData | null;
+  status: "live" | "partial" | "unavailable";
+  fetchedAt: string;
+  note: string;
+}
+
 export interface SiteAnalysisResult {
   address: string;
   placeId: string;
@@ -462,6 +520,8 @@ export interface SiteAnalysisResult {
     fetchedAt:     string;
   };
   census?: CensusData;
+  tradeAreaDemographics?: TradeAreaDemographics;
+  competitorIntelligence?: CompetitorIntelligence;
   // Data source registry — every major data point has a disclosed source
   dataSources: {
     competitors:        string;
@@ -474,8 +534,10 @@ export interface SiteAnalysisResult {
     exchangeRates:      string;
     competitorVolume:   string;
     tomtomTraffic:      string;
-    demographics:       string;
-    proximity?:         string;
+    demographics:             string;
+    proximity?:               string;
+    tradeAreaDemographics?:   string;
+    competitorIntelligence?:  string;
   };
 }
 

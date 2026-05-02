@@ -13,6 +13,7 @@ interface RadiusData {
   avgRoadVehicles:  number;
   pointsSampled:    number;
   totalPointsTried: number;
+  uniqueRoadsEst:   number;
   note:             string;
   error?:           string;
 }
@@ -25,13 +26,14 @@ function fmtNum(n: number): string {
 
 const RADIUS_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25];
 
-// Approximate how long the API will take: ~90 sample points × 100ms stagger
+// Matches targetPointsForRadius() in route.ts
+function targetPts(miles: number): number {
+  return Math.min(250, Math.max(40, Math.round(miles * 20)));
+}
+
+// Approximate how long the API will take: targetPts × 25ms stagger + 2s overhead
 function estimateSecs(miles: number): number {
-  const spacing   = Math.max(0.12, miles * Math.sqrt(Math.PI / 90));
-  const rowCount  = Math.ceil(miles / spacing) + 1;
-  const colCount  = rowCount;
-  const approxPts = Math.min(90, (2 * rowCount + 1) * (2 * colCount + 1));
-  return Math.round((approxPts * 0.1) + 2); // 100ms/point + 2s overhead
+  return Math.round(targetPts(miles) * 0.025 + 2);
 }
 
 export default function RadiusTrafficPanel({ coordinates }: Props) {
@@ -215,7 +217,7 @@ export default function RadiusTrafficPanel({ coordinates }: Props) {
             />
           </div>
           <p className="text-slate-500 text-[10px]">
-            Querying {Math.round(90 * Math.min(1, miles / 3))}+ road segments via TomTom Traffic Flow API
+            Querying ~{targetPts(miles)} road grid points via TomTom Traffic Flow API
           </p>
           {/* Show stale data dimmed while loading */}
           {data && data.milesRadius !== miles && (
@@ -290,17 +292,15 @@ export default function RadiusTrafficPanel({ coordinates }: Props) {
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-3 text-center">
               <div className="text-white font-bold text-lg">{fmtNum(data.avgRoadVehicles)}</div>
-              <div className="text-slate-300 text-[10px]">Avg per road sampled</div>
+              <div className="text-slate-300 text-[10px]">Avg AADT per road</div>
+            </div>
+            <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-3 text-center">
+              <div className="text-white font-bold text-lg">{data.uniqueRoadsEst ?? data.pointsSampled}</div>
+              <div className="text-slate-300 text-[10px]">Unique road corridors</div>
             </div>
             <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-3 text-center">
               <div className="text-white font-bold text-lg">{data.pointsSampled}</div>
-              <div className="text-slate-300 text-[10px]">Road points sampled</div>
-            </div>
-            <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-3 text-center">
-              <div className="text-white font-bold text-lg">
-                {Math.round(data.vehiclesPerDay / 12).toLocaleString()}
-              </div>
-              <div className="text-slate-300 text-[10px]">Avg vehicles / hr (12h day)</div>
+              <div className="text-slate-300 text-[10px]">Grid points sampled</div>
             </div>
           </div>
 

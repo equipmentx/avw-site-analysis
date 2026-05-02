@@ -11,12 +11,13 @@
 import https from "https";
 import type { ProximityData } from "@/lib/types";
 
-// Primary and fallback Overpass endpoints
+// Overpass endpoints — tried in order until one succeeds
 const OVERPASS_ENDPOINTS = [
-  { host: "overpass-api.de",      path: "/api/interpreter" },
-  { host: "overpass.kumi.systems", path: "/api/interpreter" },
+  { host: "overpass-api.de",        path: "/api/interpreter" },
+  { host: "overpass.kumi.systems",  path: "/api/interpreter" },
+  { host: "overpass.private.coffee", path: "/api/interpreter" },
 ];
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 25_000;
 
 // Radii tuned for car wash site analysis
 const TRANSIT_RADIUS = 800;
@@ -26,7 +27,7 @@ const PARKING_RADIUS = 400;
 
 function buildQuery(lat: number, lng: number): string {
   return `
-[out:json][timeout:10];
+[out:json][timeout:20];
 (
   node["public_transport"="stop_position"](around:${TRANSIT_RADIUS},${lat},${lng});
   node["highway"="bus_stop"](around:${TRANSIT_RADIUS},${lat},${lng});
@@ -59,8 +60,10 @@ function httpsPost(host: string, path: string, body: string): Promise<any | null
       path,
       method: "POST",
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type":  "application/x-www-form-urlencoded",
         "Content-Length": Buffer.byteLength(body),
+        "User-Agent":    "AVW-Site-Intel/1.0 (car wash site analysis)",
+        "Accept":        "application/json",
       },
     };
 
@@ -114,13 +117,21 @@ export async function fetchProximityFromOverpass(lat: number, lng: number): Prom
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
     console.log(`[AVW/proximity] Trying Overpass endpoint: ${endpoint.host}`);
-    const result = await httpsPost(endpoint.host, endpoint.path, body);
-    if (result?.elements) {
-      console.log(`[AVW/proximity] Success from ${endpoint.host} — ${result.elements.length} elements`);
-      data = result;
-      break;
+    // Try each endpoint twice before moving on — handles transient timeouts
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const result = await httpsPost(endpoint.host, endpoint.path, body);
+      if (result?.elements) {
+        console.log(`[AVW/proximity] Success from ${endpoint.host} (attempt ${attempt}) — ${result.elements.length} elements`);
+        data = result;
+        break;
+      }
+      if (attempt === 1) {
+        console.warn(`[AVW/proximity] ${endpoint.host} attempt 1 failed — retrying in 1.5s`);
+        await new Promise(r => setTimeout(r, 1_500));
+      }
     }
-    console.warn(`[AVW/proximity] ${endpoint.host} returned no usable elements`);
+    if (data?.elements) break;
+    console.warn(`[AVW/proximity] ${endpoint.host} — both attempts failed, trying next endpoint`);
   }
 
   if (!data?.elements) {

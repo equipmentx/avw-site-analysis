@@ -69,10 +69,12 @@ export default function FinalDecisionPanel({ result, budget, currency, rate, con
   const [decision, setDecision] = useState<AiDecision | null>(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState("");
+  const [retryCount, setRetryCount] = useState(0);
   const [showCalc, setShowCalc] = useState(false);
 
   useEffect(() => {
-    // Convert budget to USD (budget is in user's currency; rate = units per USD)
+    setLoading(true);
+    setError("");
     const exchangeRate = rate || 1;
 
     fetch("/api/decision", {
@@ -85,18 +87,27 @@ export default function FinalDecisionPanel({ result, budget, currency, rate, con
         if (d.error) throw new Error(d.error);
         setDecision(d);
       })
-      .catch((e) => setError(e.message ?? "Analysis unavailable"))
+      .catch((e) => setError(e.message ?? "Decision engine unavailable"))
       .finally(() => setLoading(false));
-  }, [result, budget, rate]);
+  }, [result, budget, rate, retryCount]);
 
   if (loading) return <Skeleton />;
 
   if (error || !decision) {
     return (
-      <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-5 text-center">
-        <div className="text-2xl mb-2">📊</div>
-        <p className="text-yellow-300/80 text-sm font-semibold">Investment Decision Unavailable</p>
-        <p className="text-slate-300 text-xs mt-1">Review the sections above for a complete picture of this location.</p>
+      <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6 text-center space-y-3">
+        <div className="text-3xl">⚠️</div>
+        <p className="text-red-300 text-sm font-semibold">Investment Decision Unavailable</p>
+        <p className="text-slate-400 text-xs max-w-sm mx-auto leading-relaxed">
+          {error || "The decision engine did not return a result. This can happen if the analysis data is incomplete."}
+        </p>
+        <button
+          onClick={() => setRetryCount(c => c + 1)}
+          className="mt-2 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-700/60 border border-slate-600/40 text-slate-200 hover:bg-slate-600/60 transition-colors"
+        >
+          Retry
+        </button>
+        <p className="text-slate-500 text-[11px]">The traffic and competition analysis above remains accurate.</p>
       </div>
     );
   }
@@ -127,6 +138,15 @@ export default function FinalDecisionPanel({ result, budget, currency, rate, con
                 No Budget Entered
               </span>
             )}
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+              decision.poweredBy === "claude"  ? "bg-violet-500/15 border-violet-500/30 text-violet-300" :
+              decision.poweredBy === "openai"  ? "bg-green-500/15  border-green-500/30  text-green-300"  :
+                                                 "bg-slate-600/30  border-slate-600/50  text-slate-400"
+            }`}>
+              {decision.poweredBy === "claude" ? "✦ AI-Enhanced · Claude" :
+               decision.poweredBy === "openai" ? "✦ AI-Enhanced · GPT-4o" :
+                                                 "Rules Engine"}
+            </span>
           </div>
           <p className="text-slate-300 text-sm leading-relaxed">{decision.decisionSummary}</p>
         </div>

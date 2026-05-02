@@ -82,15 +82,28 @@ export function getCarWashFormat(budgetUSD: number): CarWashFormat {
 // ─── Operating Constants (2024-2025 Industry Benchmarks) ─────────────────────
 //
 // Sources:
-//   ICA 2024 Industry Report, Rinsed Q4 2024 Benchmarks, SharpSheets 2024,
+//   ICA 2024 Industry Report, Rinsed Q4 2024 + Q1 2025 Benchmarks,
+//   MMCG Invest 2025 Industry Overview, MMCG Invest 2024 Demand Analysis,
 //   ZipRecruiter/BLS 2024 wage data, MMCG Invest / Motor City Wash Works project costs.
 
+// ── AADT-tiered capture rate adjustment ───────────────────────────────────────
+// Source: MMCG Invest 2024 Demand Analysis in Feasibility Studies.
+// Capture decreases as AADT rises — circulation/stacking becomes binding constraint.
+function getAdjustedCaptureRate(baseRate: number, aadt: number): number {
+  if (aadt <= 0) return baseRate;
+  if (aadt < 15_000) return baseRate * 1.20;   // high capture in low-traffic markets
+  if (aadt < 25_000) return baseRate;            // base case — typical suburban arterial
+  if (aadt < 60_000) return baseRate * 0.85;    // urban corridor — declining capture
+  return baseRate * 0.65;                         // very high AADT — circulation-limited
+}
+
 // Pricing tiers — 2024-2025 US express tunnel market
+// Updated distribution: reduced Basic share, raised Premium/Ultimate per 2025 trend data
 const PRICING_TIERS = [
-  { name: "Basic",          price: 9,     varChem: 0.45, mixPct: 0.40 },
-  { name: "Standard",       price: 14,    varChem: 0.60, mixPct: 0.25 },
-  { name: "Premium",        price: 20,    varChem: 0.75, mixPct: 0.20 },
-  { name: "Ultimate",       price: 26,    varChem: 0.90, mixPct: 0.15 },
+  { name: "Basic",    price: 9,  varChem: 0.45, mixPct: 0.40 },
+  { name: "Standard", price: 14, varChem: 0.60, mixPct: 0.28 },
+  { name: "Premium",  price: 20, varChem: 0.75, mixPct: 0.20 },
+  { name: "Ultimate", price: 26, varChem: 0.90, mixPct: 0.12 },
 ];
 
 const UNLIMITED_TIERS = [
@@ -138,15 +151,18 @@ const DEPR = {
   equipmentYears:  7,
 };
 
-// Traffic & subscriber model from Excel rows 7-27
+// Traffic & subscriber model
+// Updated: ramp model replaces fixed newSubsPerMonth.
+// Source: MMCG Invest 2024 — stabilized at ~3,000 members; Year-1 = 55% of stabilized.
 const TRAFFIC = {
-  annualEscalator:   0.02,   // 2% traffic growth per year (Excel row 7)
-  daysPerMonth:      26,     // operational days (Excel row 8)
-  discountRate:      0.10,   // coupons/discounts (Excel row 9)
-  ccFeeRate:         0.02,   // credit card processing (Excel row 10)
-  newSubsPerMonth:   100,    // new unlimited subscribers per month (Excel row 26)
-  avgWashesPerMonth: 2.5,    // avg washes per subscriber per month (Excel row 23)
-  annualSubGrowth:   0.08,   // subscriber growth after year 1 (Excel row 28)
+  annualEscalator:    0.02,  // 2% traffic growth per year
+  daysPerMonth:       26,    // operational days
+  discountRate:       0.10,  // coupons/discounts
+  ccFeeRate:          0.02,  // credit card processing
+  avgWashesPerMonth:  2.4,   // Rinsed Q4 2024: members wash 2.4×/month
+  // Membership ramp — % of stabilized target per year (MMCG 2024)
+  memberRamp: [0, 0.55, 0.80, 0.95, 1.0, 1.0] as const, // index = year (1-based)
+  stabilizedMembers:  3_000, // MMCG 2024: mature express tunnel = ~3,000 active members
 };
 
 // Financing from Excel rows 92-111
@@ -195,17 +211,23 @@ function buildYearProjection(
   managerHourly:     number,
 ): YearlyProjection {
 
-  // Traffic grows 2%/year (Excel row 7)
+  // Traffic grows 2%/year
   const dailyTraffic = baseDailyTraffic * Math.pow(1 + TRAFFIC.annualEscalator, year - 1);
 
-  // Standard cars per period
-  const dailyCars   = dailyTraffic * format.captureRate;
-  const monthlyCars = dailyCars * TRAFFIC.daysPerMonth;
+  // AADT-adjusted capture rate — higher traffic = lower capture (MMCG 2024)
+  const adjustedCapture = getAdjustedCaptureRate(format.captureRate, baseDailyTraffic);
+
+  // Standard (drive-by retail) cars
+  const dailyCars          = dailyTraffic * adjustedCapture;
+  const monthlyCars        = dailyCars * TRAFFIC.daysPerMonth;
   const annualStandardCars = monthlyCars * 12;
 
-  // Unlimited subscribers ramp up over time
-  const subsPerMonth = TRAFFIC.newSubsPerMonth * Math.pow(1 + TRAFFIC.annualSubGrowth, year - 1);
-  const totalSubs = Math.min(subsPerMonth * 12 * year, annualStandardCars * 0.40); // cap at 40%
+  // Membership ramp — MMCG 2024: stabilized at 3,000 members; Year-1 = 55% of stabilized
+  const rampFactor  = TRAFFIC.memberRamp[Math.min(year, 5)];
+  const totalSubs   = Math.min(
+    Math.round(TRAFFIC.stabilizedMembers * rampFactor),
+    Math.round(annualStandardCars * 0.50), // hard cap: members can't exceed 50% of drive-by cars
+  );
   const unlimitedWashes = totalSubs * TRAFFIC.avgWashesPerMonth * 12;
 
   const totalAnnualCars = annualStandardCars + unlimitedWashes;
@@ -352,7 +374,8 @@ export function runFinancialModel(
   const year3 = projections[2];
   const year5 = projections[4];
 
-  // ── Package tier breakdown (from ICA_BENCHMARKS distribution) ─────────────
+  // ── Package tier breakdown ─────────────────────────────────────────────────
+  // Rinsed Q4 2024 + MMCG 2025: membership = 35% of total revenue at stabilized site
   const year1DriveBy = format.feasible
     ? Math.round(year1.revenue * (1 - FINANCIAL_BENCHMARKS.membershipRevSharePct / 100))
     : 0;
@@ -408,11 +431,12 @@ export function runFinancialModel(
     ? Math.round(annualFixed / contributionMargin / 12)
     : 0;
 
-  const dailyCarsWashed = Math.round(estimatedDailyTraffic * format.captureRate);
+  const effectiveCapture = getAdjustedCaptureRate(format.captureRate, estimatedDailyTraffic);
+  const dailyCarsWashed  = Math.round(estimatedDailyTraffic * effectiveCapture);
 
   const assumptions: FinancialAssumptions = {
     dailyTrafficCount: estimatedDailyTraffic,
-    captureRate:       format.captureRate,
+    captureRate:       effectiveCapture,
     dailyCarsWashed,
     avgRevenuePerCar:  format.avgRevPerCar,
     totalCapex:        totalProjectCost,

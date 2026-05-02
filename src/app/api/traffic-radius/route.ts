@@ -3,17 +3,17 @@
  *
  * Strategy:
  *   Uses a hex-grid sampling pattern that covers the entire circle area uniformly.
- *   Grid spacing scales with radius to maintain ~90 sample points regardless of
- *   the requested miles — this ensures every significant road within the area is
- *   sampled, not just a ring around the perimeter.
+ *   Sample count scales with trade area: ~20 pts/mile of radius, capped at 250.
+ *   This means 1-mile → ~40 pts, 3-mile → ~60 pts, 10-mile → ~200 pts, etc.,
+ *   so "road points sampled" visibly grows as the user widens the radius.
  *
  *   For each point the TomTom Traffic Flow Segment Data API returns the nearest
  *   road segment, its road class (FRC0–FRC7), and live speed. We derive AADT
  *   via the BPR/HCM methodology (same as the main TomTom panel).
  *
- *   Trade-area vehicle exposure = average AADT × estimated road-network length.
- *   Road-network length scales linearly with radius (roads are linear, not areal
- *   features), so the displayed figure grows monotonically as radius increases.
+ *   Unique road count is estimated from the FRC-class distribution of valid samples:
+ *   each sample is assumed to represent the nearest distinct road corridor.
+ *   Trade-area exposure = sum of (unique_roads[FRC] × avg_AADT[FRC]) across classes.
  *
  * Query params:
  *   lat, lng  — center coordinates (required)
@@ -86,16 +86,22 @@ function milesToDegLng(miles: number, lat: number) {
  *   N ≈ π × (R/d)²  →  d ≈ R × √(π / N)
  *
  * With TARGET_POINTS = 90, spacing = radius × 0.187
- *   1-mile  radius → spacing ≈ 0.19 miles (~300m) → every urban block sampled
- *   3-mile  radius → spacing ≈ 0.56 miles         → every arterial road sampled
- *   10-mile radius → spacing ≈ 1.87 miles          → all major/secondary roads
- *   25-mile radius → spacing ≈ 4.68 miles          → regional highway network
+ *   1-mile  radius →  40 pts → spacing ≈ 0.28 miles → every major block sampled
+ *   3-mile  radius →  60 pts → spacing ≈ 0.69 miles → every arterial sampled
+ *   5-mile  radius → 100 pts → spacing ≈ 0.89 miles → all significant roads
+ *   10-mile radius → 200 pts → spacing ≈ 1.25 miles → major + secondary network
+ *   25-mile radius → 250 pts → spacing ≈ 2.81 miles → regional highway network
  */
-const TARGET_POINTS = 90;
+
+// Sample count scales with trade area: 20 pts per mile, capped at 250
+// Gives visible growth across the radius slider: 40→60→100→200→250
+function targetPointsForRadius(miles: number): number {
+  return Math.min(250, Math.max(40, Math.round(miles * 20)));
+}
 
 function buildHexGrid(lat: number, lng: number, miles: number): Array<{ lat: number; lng: number }> {
-  // Hex spacing to achieve TARGET_POINTS in the circle
-  const spacingMiles = Math.max(0.12, miles * Math.sqrt(Math.PI / TARGET_POINTS));
+  const targetPoints = targetPointsForRadius(miles);
+  const spacingMiles = Math.max(0.12, miles * Math.sqrt(Math.PI / targetPoints));
 
   const dLatPerCell = milesToDegLat(spacingMiles);
   const dLngPerCell = milesToDegLng(spacingMiles, lat);
@@ -131,8 +137,13 @@ function buildHexGrid(lat: number, lng: number, miles: number): Array<{ lat: num
   return points;
 }
 
-/** Estimate vehicles/day for a single TomTom flow response */
-function flowToVehiclesPerDay(flow: any): number | null {
+interface SampleResult {
+  aadt:  number;
+  frc:   string;
+}
+
+/** Estimate vehicles/day + road class for a single TomTom flow response */
+function flowToSample(flow: any): SampleResult | null {
   const seg = flow?.flowSegmentData;
   if (!seg) return null;
 
@@ -142,21 +153,33 @@ function flowToVehiclesPerDay(flow: any): number | null {
 
   const aadt = AADT_BY_CLASS[frc] ?? AADT_BY_CLASS["FRC3"];
 
-  // If speed data missing, use road-class typical midpoint
+  let vehiclesPerDay: number;
   if (!currentSpeed || !freeFlowSpeed || freeFlowSpeed === 0) {
-    return Math.round((aadt.min + aadt.max) / 2);
+    vehiclesPerDay = Math.round((aadt.min + aadt.max) / 2);
+  } else {
+    const delayRatio  = freeFlowSpeed / currentSpeed;
+    const cappedDelay = Math.min(delayRatio, 5.0);
+    const vc = cappedDelay > 1
+      ? Math.min(Math.pow((cappedDelay - 1) / 0.15, 0.25), 1.05)
+      : 0;
+    vehiclesPerDay = Math.round(aadt.min + vc * (aadt.max - aadt.min));
   }
 
-  // BPR v/c ratio from speed ratio
-  const delayRatio = freeFlowSpeed / currentSpeed;
-  const cappedDelay = Math.min(delayRatio, 5.0);
-  const vc = cappedDelay > 1
-    ? Math.min(Math.pow((cappedDelay - 1) / 0.15, 0.25), 1.05)
-    : 0;
-
-  // AADT range interpolation: AADT_min at free flow, AADT_max at capacity
-  return Math.round(aadt.min + vc * (aadt.max - aadt.min));
+  return { aadt: vehiclesPerDay, frc };
 }
+
+// Expected grid points per unique road corridor by road class.
+// Higher FRC = smaller road = more roads per sq mile = fewer grid cells per road.
+// Calibrated for typical US suburban road spacing.
+const GRID_CELLS_PER_ROAD: Record<string, number> = {
+  FRC0: 18, // highways appear in maybe 1-2 cells out of 90 per mile
+  FRC1: 10,
+  FRC2:  6,
+  FRC3:  4,
+  FRC4:  3,
+  FRC5:  2,
+  FRC6:  1,
+};
 
 export async function GET(req: NextRequest) {
   if (!TOMTOM_KEY) {
@@ -172,24 +195,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "lat and lng are required" }, { status: 400 });
   }
 
-  const points = buildHexGrid(lat, lng, miles);
+  const targetPts = targetPointsForRadius(miles);
+  const points    = buildHexGrid(lat, lng, miles);
+  const spacingMiles = (miles * Math.sqrt(Math.PI / targetPts)).toFixed(2);
 
-  // Fetch all sample points in parallel with 100ms stagger to respect TomTom rate limits
+  // Fetch all sample points in parallel with 25ms stagger
+  // 250 pts × 25ms = ~6s max — well within TomTom rate limits
   const results = await Promise.all(
     points.map((pt, i) =>
-      new Promise<number | null>((res) =>
+      new Promise<SampleResult | null>((res) =>
         setTimeout(async () => {
           const url =
             `https://api.tomtom.com/traffic/services/4/flowSegmentData/relative0/10/json` +
             `?point=${pt.lat},${pt.lng}&unit=KMPH&key=${TOMTOM_KEY}`;
           const json = await nativeGet(url);
-          res(flowToVehiclesPerDay(json));
-        }, i * 100) // 100ms stagger → ~9s for 90 points
+          res(flowToSample(json));
+        }, i * 25)
       )
     )
   );
 
-  const valid = results.filter((v): v is number => v !== null && v > 0);
+  const valid = results.filter((v): v is SampleResult => v !== null && v.aadt > 0);
 
   if (valid.length === 0) {
     return NextResponse.json({
@@ -199,26 +225,46 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const totalSampled  = valid.reduce((a, b) => a + b, 0);
-  const avgVehicles   = Math.round(totalSampled / valid.length);
+  // Group samples by FRC class
+  const frcGroups: Record<string, number[]> = {};
+  for (const s of valid) {
+    if (!frcGroups[s.frc]) frcGroups[s.frc] = [];
+    frcGroups[s.frc].push(s.aadt);
+  }
 
-  // Trade-area total: average AADT × estimated road segments in the area.
-  // Road network length scales roughly linearly with radius (roads are linear
-  // features, not areal). Calibrated so 1-mile radius ≈ 1 road-worth of
-  // exposure and 10-mile radius ≈ 18 road-equivalents.
-  const roadNetworkScale = Math.max(1, miles * 1.8);
-  const scaledTotal      = Math.round(avgVehicles * roadNetworkScale);
+  // Estimate unique road corridors per FRC class.
+  // Each unique road is expected to be hit by GRID_CELLS_PER_ROAD[frc] sample points
+  // (calibrated to US suburban road spacing). More sample points = more distinct roads found.
+  let totalVehiclesPerDay = 0;
+  let totalUniqueRoads    = 0;
+  const frcBreakdown: string[] = [];
+
+  for (const [frc, aadts] of Object.entries(frcGroups)) {
+    const cellsPerRoad   = GRID_CELLS_PER_ROAD[frc] ?? 3;
+    const uniqueRoads    = Math.max(1, Math.round(aadts.length / cellsPerRoad));
+    const avgAadt        = Math.round(aadts.reduce((a, b) => a + b, 0) / aadts.length);
+    totalVehiclesPerDay += uniqueRoads * avgAadt;
+    totalUniqueRoads    += uniqueRoads;
+    frcBreakdown.push(`${frc}: ${uniqueRoads} road(s) @ ${avgAadt.toLocaleString()} avg`);
+  }
+
+  const avgVehicles = Math.round(
+    valid.reduce((a, b) => a + b.aadt, 0) / valid.length
+  );
 
   return NextResponse.json({
     milesRadius:      miles,
-    vehiclesPerDay:   scaledTotal,
+    vehiclesPerDay:   totalVehiclesPerDay,
     avgRoadVehicles:  avgVehicles,
     pointsSampled:    valid.length,
     totalPointsTried: points.length,
+    uniqueRoadsEst:   totalUniqueRoads,
     note:
-      `Hex-grid sampling: ${valid.length} of ${points.length} points returned data ` +
-      `(uniform grid at ~${(miles * Math.sqrt(Math.PI / TARGET_POINTS)).toFixed(2)}-mile spacing within ${miles}-mile radius). ` +
-      `Avg road AADT: ${avgVehicles.toLocaleString()} veh/day. ` +
-      `Trade-area total = avg AADT × road-network scale factor (${roadNetworkScale.toFixed(1)}).`,
+      `Hex-grid: ${valid.length}/${points.length} pts returned data ` +
+      `(~${spacingMiles}-mile grid spacing, ${miles}-mile radius). ` +
+      `${totalUniqueRoads} unique road corridors estimated from FRC-class distribution. ` +
+      `Road breakdown: ${frcBreakdown.join(" · ")}. ` +
+      `Total daily exposure = Σ(unique roads × avg AADT per class). ` +
+      `Source: TomTom Traffic Flow API v4 + BPR/HCM methodology.`,
   });
 }

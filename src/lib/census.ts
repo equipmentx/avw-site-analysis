@@ -272,7 +272,7 @@ async function getGeographyFips(lat: number, lng: number): Promise<{
 }
 
 // ── Derive CensusRingData from variable map (ACS-style keys: B01003_001E) ─────
-function computeMetrics(r: Record<string, number>, label: string, areaDesc: string): CensusRingData {
+export function computeMetrics(r: Record<string, number>, label: string, areaDesc: string): CensusRingData {
   const population    = r["B01003_001E"] ?? 0;
   const households    = r["B11001_001E"] ?? 0;
   const avgHHSize     = r["B25010_001E"] ?? 0;
@@ -354,7 +354,7 @@ function computeMetrics(r: Record<string, number>, label: string, areaDesc: stri
 // Column IDs: B01003001 (no underscore, no E suffix)
 // We map to ACS-style keys (B01003_001E) for computeMetrics().
 
-async function fetchFromCensusReporter(
+export async function fetchFromCensusReporter(
   geoId: string,
   label: string,
   areaDesc: string,
@@ -402,8 +402,9 @@ async function fetchFromCensusGov(
   label: string,
   areaDesc: string,
 ): Promise<CensusRingData | null> {
-  if (!CENSUS_API_KEY) return null;
-  const url = `https://api.census.gov/data/2023/acs/acs5?get=${ACS_VARS_DIRECT}&for=${geoParam}&key=${CENSUS_API_KEY}`;
+  // Works without a key (free tier, rate-limited). Key improves reliability only.
+  const keyParam = CENSUS_API_KEY ? `&key=${CENSUS_API_KEY}` : "";
+  const url = `https://api.census.gov/data/2024/acs/acs5?get=${ACS_VARS_DIRECT}&for=${geoParam}${keyParam}`;
   const data: string[][] | null = await censusGet(url);
 
   if (!Array.isArray(data) || data.length < 2) {

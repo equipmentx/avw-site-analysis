@@ -11,9 +11,9 @@ function fmtUSD(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
-// US baseline hourly rates from Express Car Wash Pro Forma model (used to assess wage impact)
-const US_BASELINE_STAFF_HOURLY   = 16;
-const US_BASELINE_MANAGER_HOURLY = 30;
+// US baseline hourly rates — must match LABOR constants in financialModel.ts
+const US_BASELINE_STAFF_HOURLY   = 15;  // fullTime1.hourlyRate
+const US_BASELINE_MANAGER_HOURLY = 19;  // siteManager.hourlyRate
 
 // ── Rule-based decision engine (works without any AI API key) ─────────────────
 function rulesDecision(
@@ -93,7 +93,7 @@ function rulesDecision(
     breakdown: { land: { min: 0, max: 0 }, construction: { min: 0, max: 0 }, equipment: { min: 0, max: 0 }, fees: { min: 0, max: 0 } },
   };
 
-  // ── Competitor volume analysis (SerpApi Popular Times) ─────────────────────
+  // ── Competitor volume analysis (Google review count proxy) ──────────────────
   const competitorsWithVolume = competitors.filter(
     (c) => c.estimatedVolume?.sixMonthEstimate !== null && c.estimatedVolume?.sixMonthEstimate !== undefined
   );
@@ -201,7 +201,7 @@ function rulesDecision(
     greenFlags.push(
       `Market proven active: top competitor "${topVolumeCompetitor.place.name}" estimated ` +
       `~${topVolumeCompetitor.estimatedVolume.sixMonthEstimate!.toLocaleString()} cars in last 6 months ` +
-      `(source: Google Maps Popular Times via SerpApi, ${topVolumeCompetitor.estimatedVolume.confidence} confidence).`
+      `(source: Google Places review count, directional estimate).`
     );
   }
   if (avgCompetitorVolume6mo !== null && avgCompetitorVolume6mo >= 8_000) {
@@ -314,7 +314,7 @@ function rulesDecision(
     redFlags.push(
       `Competitors averaging only ~${avgCompetitorVolume6mo.toLocaleString()} cars/6 months — ` +
       `low volumes may indicate weak car wash demand in this area. ` +
-      `(source: Google Maps Popular Times via SerpApi)`
+      `(source: Google Places review count, directional estimate)`
     );
   }
   if (totalCompetitorVolume6mo > 60_000 && competitors.length >= 4) {
@@ -378,8 +378,8 @@ function rulesDecision(
     `Country cost index: ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of US benchmark`,
     `Labour rates (${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `${wageSource === "world-bank-derived" ? "World Bank" : "ILO ILOSTAT"} ${wagePeriod}` : "Pro Forma 2017 baseline"}): staff $${staffHourly.toFixed(2)}/hr · manager $${managerHourly.toFixed(2)}/hr`,
     competitorsWithVolume.length > 0
-      ? `Competitor volume data (SerpApi): ${competitorsWithVolume.length}/${competitors.length} competitors have Popular Times data · avg ~${avgCompetitorVolume6mo?.toLocaleString() ?? "N/A"} cars/6 months`
-      : `Competitor volume: no SerpApi data available (SERPAPI_KEY not configured or data unavailable)`,
+      ? `Competitor volume (Google review proxy): ${competitorsWithVolume.length}/${competitors.length} competitors · avg ~${avgCompetitorVolume6mo?.toLocaleString() ?? "N/A"} cars/6 months (directional estimate)`
+      : `Competitor volume: no review data available`,
     flowStatus === "live"
       ? `Road intelligence (TomTom): ${roadLabel ?? "Unknown"} (${roadClass ?? "?"}) · traffic ${congestion ?? "unknown"} · incident risk ${incidentRisk ?? "unknown"} · ${closures} closure(s)`
       : `Road intelligence: TomTom data unavailable (API key not configured)`,
@@ -411,11 +411,11 @@ function rulesDecision(
     `Labour costs: ${["ilo-occupation","ilo-all-workers","world-bank-derived"].includes(wageSource) ? `live ${wageSource === "world-bank-derived" ? "World Bank" : "ILO"} data (${wagePeriod}): staff $${staffHourly.toFixed(2)}/hr` : `Pro Forma baseline: staff $${staffHourly.toFixed(2)}/hr`}. ` +
     `Year 1 revenue ${fmtUSD(fp.year1Revenue)}, EBITDA ${fmtUSD(fp.year1EBITDA)}, payback ${fp.paybackYears} yrs. ` +
     (competitorsWithVolume.length > 0
-      ? `\n\nCOMPETITOR VOLUME (Google Maps Popular Times via SerpApi): ` +
-        `${competitorsWithVolume.length} of ${competitors.length} competitors have volume data. ` +
+      ? `\n\nCOMPETITOR VOLUME (Google Places review count — directional estimate): ` +
+        `${competitorsWithVolume.length} of ${competitors.length} competitors have data. ` +
         `Average 6-month volume: ~${avgCompetitorVolume6mo?.toLocaleString() ?? "N/A"} cars. ` +
         (topVolumeCompetitor ? `Busiest competitor: "${topVolumeCompetitor.place.name}" at ~${topVolumeCompetitor.estimatedVolume.sixMonthEstimate?.toLocaleString()} cars/6 months. ` : "")
-      : `\n\nCOMPETITOR VOLUME: Not available — SERPAPI_KEY not configured. `) +
+      : `\n\nCOMPETITOR VOLUME: Insufficient review data to estimate. `) +
     (flowStatus === "live"
       ? `\n\nROAD INTELLIGENCE (TomTom APIs — live): ` +
         `Road class ${roadLabel} (${roadClass}) · Traffic ${congestion} · ` +
@@ -617,7 +617,7 @@ Verdict: ${decision.verdict}
 Budget: ${fmtUSD(budgetUSD)} USD | Minimum required: ${fmtUSD(decision.minimumRequiredUSD)}
 Selected format: ${config ? `${config.name} (${config.categoryLabel}) — ${config.carsPerHour.min}–${config.carsPerHour.max} cars/hr, ${config.staffRequired.min}–${config.staffRequired.max} staff, lot min ${config.minLotSqFt.toLocaleString()} sqft, US investment range ${fmtUSD(config.investmentRangeUSD.min)}–${fmtUSD(config.investmentRangeUSD.max)}, ${config.membershipFriendly ? "membership-ready" : "no membership model"}, avg ticket $${config.avgTicketUSD}` : "None selected — generic analysis"}
 Score: ${result.score.overall}/100 (${result.score.verdict})
-Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [source: Google Maps review-volume formula]
+Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [source: TomTom Traffic Flow API — BPR/HCM methodology]
 Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} [source: Google Places API]
 Nearby shopping centers: ${result.trafficSignals.nearbyShopping} [source: Google Places API]
 Nearby gas stations: ${result.trafficSignals.nearbyGasStations} [source: Google Places API]
@@ -626,7 +626,7 @@ Market saturation: ${result.reviewInsights.marketSaturationLevel}
 Year 1 Revenue: ${fmtUSD(result.financialProjection.year1Revenue)} | EBITDA: ${fmtUSD(result.financialProjection.year1EBITDA)} [source: Express Car Wash Investment Pro Forma]
 Payback: ${result.financialProjection.paybackYears} years | IRR: ~${result.financialProjection.irr5Year}%
 LABOUR RATES [source: ${result.financialProjection.assumptions.wageSource !== "excel-baseline" && result.financialProjection.assumptions.wageSource !== "unavailable" ? `Live — ${result.financialProjection.assumptions.wagePeriod}` : "Pro Forma baseline (2017) — live data unavailable"}]: Staff $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)}/hr | Manager $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)}/hr | US baseline: $${US_BASELINE_STAFF_HOURLY}/hr staff
-COMPETITOR VOLUME [source: Google Maps Popular Times via SerpApi]: ${
+COMPETITOR VOLUME [source: Google Places review count — directional estimate]: ${
   decision.keyFactors.find(f => f.includes("Competitor volume")) ?? "No volume data available"
 }
 ROAD INTELLIGENCE [source: TomTom APIs — live data]: ${
@@ -702,7 +702,7 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Competitors within ${result.radiusMiles} miles: ${result.competitors.length}\n` +
                 `- Average competitor rating: ${result.reviewInsights.avgCompetitorRating}/5.0\n` +
                 `- Market saturation: ${result.reviewInsights.marketSaturationLevel}\n` +
-                `- Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [Google Maps review-volume formula]\n\n` +
+                `- Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [TomTom Traffic Flow API — BPR/HCM]\n\n` +
                 `SITE SURROUNDINGS [source: Google Places API]:\n` +
                 `- Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} (ideal: ≥2)\n` +
                 `- Nearby shopping centers/big-box: ${result.trafficSignals.nearbyShopping} (ideal: ≥1)\n` +
@@ -718,7 +718,7 @@ Existing green flags: ${decision.greenFlags.join("; ")}`;
                 `- Staff hourly: $${result.financialProjection.assumptions.staffHourlyUSD?.toFixed(2)} USD (US baseline: $${US_BASELINE_STAFF_HOURLY})\n` +
                 `- Manager hourly: $${result.financialProjection.assumptions.managerHourlyUSD?.toFixed(2)} USD (US baseline: $${US_BASELINE_MANAGER_HOURLY})\n` +
                 `- Note: labour costs are ALREADY factored into the EBITDA above\n\n` +
-                `COMPETITOR VOLUME [source: Google Maps Popular Times via SerpApi]:\n` +
+                `COMPETITOR VOLUME [source: Google Places review count — directional estimate]:\n` +
                 `${decision.keyFactors.find(f => f.includes("Competitor volume")) ?? "- No competitor volume data available"}\n\n` +
                 `ROAD INTELLIGENCE [source: TomTom APIs — live data]:\n` +
                 (flowStatus === "live"

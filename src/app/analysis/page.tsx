@@ -73,6 +73,14 @@ const PsychographicPanel = dynamic(
   () => import("@/components/PsychographicPanel"),
   { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
 );
+const TradeAreaDemographicsPanel = dynamic(
+  () => import("@/components/TradeAreaDemographicsPanel"),
+  { ssr: false, loading: () => <div className="shimmer h-64 rounded-2xl" /> }
+);
+const CompetitorIntelligencePanel = dynamic(
+  () => import("@/components/CompetitorIntelligencePanel"),
+  { ssr: false, loading: () => <div className="shimmer h-96 rounded-2xl" /> }
+);
 
 // ── Tab definitions ────────────────────────────────────────────────────────────
 const TABS = [
@@ -214,6 +222,7 @@ function AnalysisPageInner() {
   const [error,     setError]     = useState("");
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [activeRadius, setActiveRadius] = useState(initialRadius);
+  const [linkCopied, setLinkCopied] = useState(false);
   const hasFetched = useRef(false);
 
   const handlePrint = () => {
@@ -360,11 +369,20 @@ function AnalysisPageInner() {
               <Printer className="w-4 h-4" />
             </button>
             <button
-              onClick={() => navigator.clipboard?.writeText(window.location.href)}
-              className="p-2 rounded-lg bg-slate-600/40 hover:bg-slate-600 text-slate-400 hover:text-white transition-colors"
-              title="Copy link"
+              onClick={() => {
+                navigator.clipboard?.writeText(window.location.href);
+                setLinkCopied(true);
+                setTimeout(() => setLinkCopied(false), 2000);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                linkCopied
+                  ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-400"
+                  : "bg-slate-600/40 hover:bg-slate-600 text-slate-400 hover:text-white"
+              }`}
+              title="Copy link to this analysis"
             >
-              <Share2 className="w-4 h-4" />
+              <Share2 className="w-3.5 h-3.5" />
+              <span>{linkCopied ? "Copied!" : "Copy link"}</span>
             </button>
           </div>
         </div>
@@ -553,10 +571,21 @@ function AnalysisPageInner() {
                 <h3 className="text-white font-bold text-lg mb-2">Demographics Data Unavailable</h3>
                 <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
                   {result.countryCode === "US"
-                    ? "Census ACS data fetch failed. Ensure CENSUS_ACS_API_KEY is set in .env.local and the location is within the US."
-                    : `US Census Bureau ACS is only available for US locations. This site is in ${result.countryCode}.`}
+                    ? "US Census data could not be retrieved for this location. The traffic, competition, and financial analysis above are unaffected."
+                    : `Population and household demographics are sourced from the US Census Bureau and are only available for US locations. This site is in ${result.countryCode}.`}
                 </p>
               </div>
+            )}
+
+            {/* Drive-Time Trade Area Demographics */}
+            {result.tradeAreaDemographics && (
+              <Section
+                title="Drive-Time Trade Area"
+                subtitle="Census demographics aggregated per TomTom isochrone zone — who lives within 5, 10, and 15 minutes of this site"
+                icon={<Map className="w-5 h-5 text-teal-400" />}
+              >
+                <TradeAreaDemographicsPanel data={result.tradeAreaDemographics} />
+              </Section>
             )}
 
             {/* Wash Volume Estimate — always show */}
@@ -653,6 +682,20 @@ function AnalysisPageInner() {
         ═══════════════════════════════════════════════════════════════ */}
         {(activeTab === "competitive") && (
           <>
+            {/* ── Competitor Intelligence ───────────────────────────────── */}
+            {result.competitorIntelligence && (
+              <Section
+                title="Competitive Intelligence"
+                subtitle="Road traffic advantage · market share estimates · threat flags — live TomTom + Google review data"
+                icon={<TrendingUp className="w-5 h-5 text-red-400" />}
+              >
+                <CompetitorIntelligencePanel
+                  data={result.competitorIntelligence}
+                  siteAddress={result.address}
+                />
+              </Section>
+            )}
+
             {/* ── Competition map — site + all competitor pins ─────────── */}
             <Section
               title="Competition Map"

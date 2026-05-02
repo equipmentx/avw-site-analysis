@@ -15,6 +15,8 @@ import type {
   TrafficSignals,
   SiteAnalysisResult,
   InvestmentSuggestion,
+  CompetitorIntelligence,
+  CompetitorTrafficData,
 } from "@/lib/types";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? "";
@@ -30,7 +32,7 @@ console.log("[AVW] API keys loaded:");
 console.log("  GOOGLE_MAPS_API_KEY:  ", GOOGLE_API_KEY  ? `✅ (${GOOGLE_API_KEY.slice(0,8)}...)`  : "❌ MISSING — required");
 console.log("  TOMTOM_API_KEY:       ", process.env.TOMTOM_API_KEY ? `✅ (${(process.env.TOMTOM_API_KEY).slice(0,8)}...)` : "⚠️  not set  — AADT will use density proxy");
 console.log("  ATTOM_API_KEY:        ", _attomKey       ? `✅ (${_attomKey.slice(0,8)}...)`        : "⚠️  not set  — parcel data unavailable");
-console.log("  CENSUS_ACS_API_KEY:   ", _censusKey      ? `✅ (${_censusKey.slice(0,8)}...)`      : "⚠️  not set  — demographics unavailable");
+console.log("  CENSUS_ACS_API_KEY:   ", _censusKey      ? `✅ (${_censusKey.slice(0,8)}...)`      : "ℹ️  not set  — Census works without key (rate-limited)");
 console.log("  OPENAI_API_KEY:       ", _openaiKey      ? `✅ (${_openaiKey.slice(0,8)}...)`      : "⚠️  not set  — decision panel uses rules only");
 console.log("  ANTHROPIC_API_KEY:    ", _anthropicKey   ? `✅ (${_anthropicKey.slice(0,8)}...)`   : "⚠️  not set  — decision panel uses rules only");
 
@@ -185,14 +187,32 @@ async function gFetch(url: string): Promise<any> {
   }
 }
 
+// Fetches all pages of a nearbysearch (up to 60 results — Google's hard cap of 3 pages).
+// Google requires a ~2s delay before the next_page_token becomes valid.
 async function fetchPlacesNearby(lat: number, lng: number, type: string, radius = 5000): Promise<PlaceResult[]> {
-  const url = new URL(`${BASE_URL}/place/nearbysearch/json`);
-  url.searchParams.set("location", `${lat},${lng}`);
-  url.searchParams.set("radius", radius.toString());
-  url.searchParams.set("type", type);
-  url.searchParams.set("key", GOOGLE_API_KEY);
-  const data = await gFetch(url.toString());
-  return data?.results ?? [];
+  const base = new URL(`${BASE_URL}/place/nearbysearch/json`);
+  base.searchParams.set("location", `${lat},${lng}`);
+  base.searchParams.set("radius", radius.toString());
+  base.searchParams.set("type", type);
+  base.searchParams.set("key", GOOGLE_API_KEY);
+
+  const all: PlaceResult[] = [];
+  let nextPageToken: string | undefined;
+  let page = 0;
+
+  do {
+    const url = new URL(base.toString());
+    if (nextPageToken) url.searchParams.set("pagetoken", nextPageToken);
+    const data = await gFetch(url.toString());
+    if (!data) break;
+    all.push(...(data.results ?? []));
+    nextPageToken = data.next_page_token;
+    page++;
+    // Google requires ~2s before the pagetoken becomes active
+    if (nextPageToken && page < 3) await new Promise(r => setTimeout(r, 2_000));
+  } while (nextPageToken && page < 3); // max 3 pages = 60 results
+
+  return all;
 }
 
 async function fetchPlaceDetails(placeId: string): Promise<PlaceResult | null> {
@@ -259,6 +279,7 @@ import { fetchATTOMParcel, type ATTOMParcelData } from "@/lib/attom";
 import { fetchOSMBuilding } from "@/lib/osm";
 import type { RegridParcelData, ProximityData } from "@/lib/types";
 import { fetchCensusData } from "@/lib/census";
+import { fetchTradeAreaDemographics } from "@/lib/censusByZone";
 import { COMPETITION_BENCHMARKS } from "@/lib/industryBenchmarks";
 import { fetchProximityFromOverpass } from "@/lib/proximity";
 
@@ -435,6 +456,41 @@ function buildInvestmentSuggestion(
   };
 }
 
+// ── Competitor road-traffic fetch ─────────────────────────────────────────────
+// FHWA/TomTom AADT range by road class — same table used in traffic-radius route
+const COMP_AADT: Record<string, { min: number; max: number }> = {
+  FRC0: { min: 50_000, max: 150_000 },
+  FRC1: { min: 20_000, max: 80_000  },
+  FRC2: { min: 10_000, max: 45_000  },
+  FRC3: { min: 5_000,  max: 25_000  },
+  FRC4: { min: 2_000,  max: 12_000  },
+  FRC5: { min: 500,    max: 6_000   },
+  FRC6: { min: 100,    max: 2_500   },
+};
+
+async function fetchCompetitorRoadAadt(lat: number, lng: number): Promise<number | null> {
+  if (!TOMTOM_API_KEY) return null;
+  const url =
+    `https://api.tomtom.com/traffic/services/4/flowSegmentData/relative0/10/json` +
+    `?point=${lat},${lng}&unit=KMPH&key=${TOMTOM_API_KEY}`;
+  const data = await gFetch(url);
+  const seg  = data?.flowSegmentData;
+  if (!seg) return null;
+  const frc           = (seg.frc as string) ?? "FRC3";
+  const currentSpeed  = seg.currentSpeed  as number;
+  const freeFlowSpeed = seg.freeFlowSpeed as number;
+  const aadt = COMP_AADT[frc] ?? COMP_AADT["FRC3"];
+  if (!currentSpeed || !freeFlowSpeed || freeFlowSpeed === 0) {
+    return Math.round((aadt.min + aadt.max) / 2);
+  }
+  const delayRatio  = freeFlowSpeed / currentSpeed;
+  const cappedDelay = Math.min(delayRatio, 5.0);
+  const vc = cappedDelay > 1
+    ? Math.min(Math.pow((cappedDelay - 1) / 0.15, 0.25), 1.05)
+    : 0;
+  return Math.round(aadt.min + vc * (aadt.max - aadt.min));
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
@@ -492,6 +548,16 @@ export async function POST(req: NextRequest) {
       fetchProximityData(centerLat, centerLng),
     ]);
 
+    // ── Trade area demographics — Census by drive-time zone (US only) ────────
+    // Runs after TomTom so we have the 5/10/15-min isochrone polygons.
+    const tradeAreaDemographics = countryCode === "US" && tomtomData.isochrones.fiveMin.polygon.length > 0
+      ? await fetchTradeAreaDemographics(
+          tomtomData.isochrones.fiveMin.polygon,
+          tomtomData.isochrones.tenMin.polygon,
+          tomtomData.isochrones.fifteenMin.polygon,
+        ).catch((err) => { console.warn("[AVW] Trade area demographics failed:", err?.message); return null; })
+      : null;
+
     // Merge OSM polygon into parcel data if ATTOM returned an empty polygon
     if (parcelData && osmBuilding?.status === "live" && osmBuilding.polygon.length > 0) {
       if (parcelData.polygon.length === 0) {
@@ -502,7 +568,7 @@ export async function POST(req: NextRequest) {
     // ── Competitors — scaled to user radius ──────────────────────────────────
     const carWashResults = await fetchPlacesNearby(centerLat, centerLng, "car_wash", radiusMeters);
     const competitorDetails = await Promise.all(
-      carWashResults.slice(0, 10).map((p) => fetchPlaceDetails(p.place_id))
+      carWashResults.map((p) => fetchPlaceDetails(p.place_id))
     );
 
     const validDetails = competitorDetails
@@ -521,6 +587,44 @@ export async function POST(req: NextRequest) {
         return analyzeCompetitor(place, parseFloat(distMiles.toFixed(2)), estimatedVolume, hasMembership, washType);
       })
       .sort((a, b) => a.distanceMiles - b.distanceMiles);
+
+    // ── Competitor road-traffic fetch (runs now — parallel, before financial) ──
+    // TomTom AADT at each competitor's nearest road. Market share is computed
+    // further down once `financial` is available (dailyCarsWashed is needed).
+    const MAX_COMP_TRAFFIC = 15;
+    const siteRoadVpd      = tomtomData.trafficFlow.vehicleCount.vehiclesPerDay;
+    const trafficFetched   = !!TOMTOM_API_KEY && siteRoadVpd > 0;
+
+    const compTrafficVpds: Array<number | null> = trafficFetched
+      ? await Promise.all(
+          competitors.slice(0, MAX_COMP_TRAFFIC).map((c) =>
+            fetchCompetitorRoadAadt(
+              c.place.geometry.location.lat,
+              c.place.geometry.location.lng,
+            )
+          )
+        )
+      : competitors.slice(0, MAX_COMP_TRAFFIC).map(() => null);
+
+    // Build per-competitor traffic rows (market share filled after financial)
+    const compRows: CompetitorTrafficData[] = competitors.map((comp, i) => {
+      const roadVpd = i < MAX_COMP_TRAFFIC ? compTrafficVpds[i] : null;
+      const trafficVariancePct =
+        siteRoadVpd > 0 && roadVpd != null
+          ? Math.round(((roadVpd - siteRoadVpd) / siteRoadVpd) * 1000) / 10
+          : null;
+      const sixMonth = comp.estimatedVolume.sixMonthEstimate;
+      return {
+        name:                 comp.place.name ?? "Unknown",
+        placeId:              comp.place.place_id,
+        distanceMiles:        comp.distanceMiles,
+        annualCarsEstimate:   sixMonth != null ? sixMonth * 2 : null,
+        marketSharePct:       null, // filled below after financial model runs
+        roadVpd,
+        trafficVariancePct,
+        trafficAdvantageFlag: trafficVariancePct != null && trafficVariancePct > 15,
+      };
+    });
 
     // ── Traffic signals — scaled to signal radius ────────────────────────────
     const [gasStations, grocery, fastFood, shopping, schools] = await Promise.all([
@@ -618,6 +722,45 @@ export async function POST(req: NextRequest) {
     );
     const financialViable = financial.year1EBITDA > 0;
 
+    // ── Competitor Intelligence: finalize market share now that financial is ready ─
+    const siteAnnualCars        = Math.round((financial.assumptions?.dailyCarsWashed ?? 0) * 365);
+    const competitorAnnualTotal = compRows
+      .filter((c) => c.annualCarsEstimate != null)
+      .reduce((s, c) => s + (c.annualCarsEstimate ?? 0), 0);
+    const totalAreaCars         = siteAnnualCars + competitorAnnualTotal;
+
+    const compRowsWithShare: CompetitorTrafficData[] = compRows.map((c) => ({
+      ...c,
+      marketSharePct:
+        c.annualCarsEstimate != null && totalAreaCars > 0
+          ? Math.round((c.annualCarsEstimate / totalAreaCars) * 1000) / 10
+          : null,
+    }));
+
+    const siteSharePct =
+      totalAreaCars > 0
+        ? Math.round((siteAnnualCars / totalAreaCars) * 1000) / 10
+        : 0;
+
+    const dominant = [...compRowsWithShare]
+      .filter((c) => c.marketSharePct != null)
+      .sort((a, b) => (b.marketSharePct ?? 0) - (a.marketSharePct ?? 0))[0];
+
+    const competitorIntelligence: CompetitorIntelligence = {
+      siteRoadVpd,
+      marketVolume: {
+        siteAnnualCarsEstimate: siteAnnualCars,
+        totalAreaCarsEstimate:  totalAreaCars,
+        siteMarketSharePct:     siteSharePct,
+        competitors:            compRowsWithShare,
+        dominantPlayerName:     dominant?.name ?? null,
+        dominantPlayerSharePct: dominant?.marketSharePct ?? null,
+      },
+      flaggedCount:   compRowsWithShare.filter((c) => c.trafficAdvantageFlag).length,
+      trafficFetched,
+      fetchedAt:      new Date().toISOString(),
+    };
+
     // Scoring — now passes TomTom trafficFlow + Census for Site Fundamentals
     const score = calculateLocationScore(
       competitors, trafficSignals, financialViable,
@@ -655,10 +798,12 @@ export async function POST(req: NextRequest) {
       osmBuilding: osmBuilding ?? undefined,
       census: censusData ?? undefined,
       proximity: proximityData ?? undefined,
+      tradeAreaDemographics: tradeAreaDemographics ?? undefined,
+      competitorIntelligence,
       dataSources: {
         competitors:
           `Google Places API — live data fetched at time of analysis within a ${displayRadiusMiles}-mile radius ` +
-          `(Google Places nearbysearch API capped at ~31 miles; selected radius: ${displayRadiusMiles} mi). ` +
+          `(up to 60 results via 3-page pagination; ${competitors.length} car washes found). ` +
           "Includes name, rating, review count, photos, opening hours, and distance.",
         traffic:
           tomtomVehiclesPerDay > 0
@@ -732,6 +877,18 @@ export async function POST(req: NextRequest) {
           proximityData?.status === "live"
             ? proximityData.osmSource
             : "OSM Overpass unavailable — proximity data not available.",
+        tradeAreaDemographics:
+          tradeAreaDemographics?.status === "live"
+            ? `US Census ACS 5-Year 2024 aggregated by TomTom drive-time isochrone (5/10/15-min). ` +
+              `Method: sample points within each polygon → Census Reporter geo/contains → unique tract geo_ids → ACS variables aggregated. ` +
+              `Source: api.censusreporter.org`
+            : tradeAreaDemographics?.status === "partial"
+            ? "Drive-time trade area demographics partially available — some zones returned no Census data."
+            : countryCode === "US"
+            ? tomtomData.isochrones.fiveMin.polygon.length > 0
+              ? "Trade area Census data unavailable — Census Reporter fetch failed."
+              : "Trade area Census data unavailable — TomTom isochrone polygons not available."
+            : `Trade area Census data — US only (this location: ${countryCode}).`,
         demographics:
           censusData?.status === "live"
             ? `US Census Bureau ACS 5-Year Estimates 2024 (2020–2024), via Census Reporter. ` +
@@ -742,6 +899,14 @@ export async function POST(req: NextRequest) {
             : countryCode === "US"
             ? "Census ACS data unavailable — Census Reporter or direct ACS fetch failed. Check server logs for details."
             : `Census ACS not available for ${countryCode} — US only.`,
+        competitorIntelligence:
+          trafficFetched
+            ? `TomTom Traffic Flow API v4 — road AADT fetched at each competitor's location (top ${Math.min(competitors.length, MAX_COMP_TRAFFIC)} of ${competitors.length} competitors). ` +
+              `Traffic variance = (competitor road VPD − site road VPD) / site road VPD × 100. ` +
+              `Flag threshold: >15% busier road. Market share from Google review-based volume estimates (proxy).`
+            : TOMTOM_API_KEY
+            ? `TomTom key configured but site road VPD is 0 — competitor traffic comparison unavailable.`
+            : `TomTom API key not configured — competitor road traffic unavailable. Market share uses review-based estimates only.`,
       },
     };
 

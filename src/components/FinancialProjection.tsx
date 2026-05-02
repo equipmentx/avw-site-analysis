@@ -102,6 +102,8 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
     year1Revenue, year1EBITDA, year5Revenue,
   } = data;
 
+  const noTrafficData = projections.every(p => p.revenue === 0) && projections.every(p => p.cars === 0);
+
   const ebitdaData = projections.map((p) => ({
     year: p.year,
     Revenue: p.revenue,
@@ -131,6 +133,20 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
 
   return (
     <div className="space-y-8">
+
+      {/* No-traffic warning banner */}
+      {noTrafficData && (
+        <div className="bg-yellow-500/8 border border-yellow-500/25 rounded-xl px-4 py-3 flex items-start gap-3">
+          <span className="text-yellow-400 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+          <div>
+            <p className="text-yellow-300 text-sm font-semibold">Financial projections require traffic data</p>
+            <p className="text-slate-400 text-xs mt-0.5 leading-relaxed">
+              No vehicle count was available for this location — projections show $0 because revenue is calculated from passing traffic.
+              Ensure <span className="text-slate-300 font-medium">TOMTOM_API_KEY</span> is configured, or try a more specific street address on a main road.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Key Metrics — image cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

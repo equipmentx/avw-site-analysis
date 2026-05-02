@@ -36,8 +36,22 @@ export default function RootLayout({
         {/* Define global Maps-ready dispatcher before any page script runs */}
         <script dangerouslySetInnerHTML={{ __html: `
           window.__onGoogleMapsLoaded = function() {
-            if (typeof window.initGoogleMaps  === 'function') window.initGoogleMaps();
-            if (typeof window._mapCallback    === 'function') window._mapCallback();
+            if (typeof window.initGoogleMaps === 'function') {
+              window.initGoogleMaps();
+            } else {
+              // React effect hasn't run yet — retry once it does
+              var attempts = 0;
+              var retry = setInterval(function() {
+                attempts++;
+                if (typeof window.initGoogleMaps === 'function') {
+                  window.initGoogleMaps();
+                  clearInterval(retry);
+                } else if (attempts > 20) {
+                  clearInterval(retry);
+                }
+              }, 50);
+            }
+            if (typeof window._mapCallback === 'function') window._mapCallback();
           };
         `}} />
       </head>

@@ -89,6 +89,22 @@ async function fetchOxrRates(currencies: string[]): Promise<Record<string, numbe
   }
 }
 
+// Third live source — Frankfurter (European Central Bank data, free, no key)
+// Used when FRED and OXR are both unavailable for a currency.
+async function fetchFrankfurterRates(currencies: string[]): Promise<Record<string, number>> {
+  try {
+    const res = await fetch(
+      `https://api.frankfurter.app/latest?from=USD&to=${currencies.join(",")}`,
+      { next: { revalidate: 3600 } }
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
+    return (data?.rates as Record<string, number>) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export async function GET() {
   const FRED_API_KEY = process.env.FRED_API_KEY ?? "";
 
@@ -110,35 +126,52 @@ export async function GET() {
     }
   });
 
-  // Fetch OXR-only currencies + any FRED misses
+  // Second source: OXR for NGN/GHS/KES/AED + any FRED misses
   const oxrCurrencies = [...OXR_ONLY, ...missing];
   if (oxrCurrencies.length > 0) {
     const oxrRates = await fetchOxrRates(oxrCurrencies);
     Object.assign(rates, oxrRates);
   }
 
-  // How many Fed rates did we get?
-  const fredCount = fredEntries.filter(([c]) => rates[c] !== undefined).length;
-  const source = fredCount >= 6
-    ? `US Federal Reserve FRED H.10 (${fredCount}/${fredEntries.length} currencies) · ` +
-      `Open Exchange Rates / er-api (fallback for NGN, GHS, KES)`
-    : `Open Exchange Rates / er-api (FRED unavailable — ${fredCount} Fed rates retrieved)`;
-
-  // Hard fallback for any still-missing currencies
-  const fallback: Record<string, number> = {
-    GBP: 0.79, EUR: 0.92, NGN: 1580, CAD: 1.37, AUD: 1.54,
-    ZAR: 18.6, GHS: 15.5, KES: 132, AED: 3.67, INR: 83.8,
-    BRL: 5.1, MXN: 17.3, JPY: 150, CNY: 7.25, SAR: 3.75,
-  };
-  for (const [c, v] of Object.entries(fallback)) {
-    if (!rates[c]) rates[c] = v;
+  // Third source: Frankfurter (ECB data) for anything still missing
+  const stillMissing = [...OXR_ONLY, ...Object.keys(FRED_SERIES)].filter(c => !rates[c]);
+  if (stillMissing.length > 0) {
+    const frankRates = await fetchFrankfurterRates(stillMissing);
+    for (const [c, v] of Object.entries(frankRates)) {
+      if (!rates[c] && v > 0) rates[c] = parseFloat(v.toFixed(6));
+    }
   }
+
+  const fredCount = fredEntries.filter(([c]) => rates[c] !== undefined).length;
+  const liveSources: string[] = [];
+  if (fredCount > 0) liveSources.push(`FRED H.10 (${fredCount}/${fredEntries.length})`);
+  if (oxrCurrencies.some(c => rates[c])) liveSources.push("er-api.com");
+  if (stillMissing.some(c => rates[c])) liveSources.push("Frankfurter/ECB");
+  const source = liveSources.length > 0
+    ? `Live: ${liveSources.join(" · ")} — all rates fetched at request time`
+    : "All live rate sources unavailable";
+
+  // Emergency static fallback — only fires when FRED + er-api + Frankfurter all fail
+  // (extremely rare; these are three independent global sources)
+  const staticFallback: Record<string, number> = {
+    GBP: 0.79, EUR: 0.91, NGN: 1620, CAD: 1.38, AUD: 1.56,
+    ZAR: 18.3, GHS: 15.8, KES: 129,  AED: 3.67, INR: 84.1,
+    BRL: 5.75, MXN: 19.8, JPY: 145,  CNY: 7.27, SAR: 3.75,
+  };
+  const usedStatic: string[] = [];
+  for (const [c, v] of Object.entries(staticFallback)) {
+    if (!rates[c]) { rates[c] = v; usedStatic.push(c); }
+  }
+
+  const finalSource = usedStatic.length > 0
+    ? `${source} · Static emergency values for: ${usedStatic.join(", ")} (all 3 live sources timed out)`
+    : source;
 
   return NextResponse.json({
     base:      "USD",
     date:      new Date().toISOString().split("T")[0],
     rates,
-    source,
+    source:    finalSource,
     fetchedAt: new Date().toISOString(),
   });
 }

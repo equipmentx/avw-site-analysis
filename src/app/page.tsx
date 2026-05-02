@@ -241,23 +241,43 @@ export default function LandingPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Wire up Google Maps readiness — layout already loads the script globally.
-  // We just need to register our callback and check if it's already loaded.
+  // Wire up Google Maps readiness
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey || apiKey === "YOUR_GOOGLE_MAPS_API_KEY_HERE") return;
-    // Already loaded (e.g. returning from analysis page in same session)
-    if (window.google?.maps) { setMapsReady(true); return; }
-    // Register callback — layout's global script will call this when Maps loads
+
+    // Already loaded
+    if (window.google?.maps?.places) { setMapsReady(true); return; }
+
+    // Callback for when Maps finishes loading (called by layout's __onGoogleMapsLoaded)
     window.initGoogleMaps = () => setMapsReady(true);
-    // Guard: if no layout script present (dev/local without layout), load ourselves
-    if (!document.querySelector('script[src*="maps.googleapis.com"]')) {
+
+    // Polling fallback — handles the race condition where Next.js's <Script> tag is
+    // injected into the DOM after this effect runs, causing querySelector to return null
+    // and accidentally load a second copy of Maps (which breaks the API).
+    // The poll detects availability regardless of which load path fired.
+    const poll = setInterval(() => {
+      if (window.google?.maps?.places) {
+        setMapsReady(true);
+        clearInterval(poll);
+      }
+    }, 150);
+
+    // Only inject our own script if no Maps script appears after a short delay
+    // (gives Next.js's Script component time to inject its <script> tag first)
+    const fallbackTimer = setTimeout(() => {
+      if (window.google?.maps?.places) return;
+      if (document.querySelector('script[src*="maps.googleapis.com"]')) return;
       const script = document.createElement("script");
       script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGoogleMaps`;
       script.async = true;
       document.head.appendChild(script);
-      return () => { try { document.head.removeChild(script); } catch {} };
-    }
+    }, 300);
+
+    return () => {
+      clearInterval(poll);
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   // Wire autocomplete
@@ -265,7 +285,7 @@ export default function LandingPage() {
     if (!mapsReady || !inputRef.current || autocompleteRef.current) return;
     autocompleteRef.current = new window.google.maps.places.Autocomplete(
       inputRef.current,
-      { types: ["address", "establishment"] }
+      { types: ["address"] }
     );
     autocompleteRef.current.addListener("place_changed", () => {
       const place = autocompleteRef.current!.getPlace();
