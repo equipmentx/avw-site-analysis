@@ -7,7 +7,7 @@ import {
   TrendingUp, Users, DollarSign, Target, Lightbulb,
   CheckCircle, XCircle, ChevronDown, ChevronUp,
   Share2, Navigation, Maximize2, FileText, BarChart2,
-  Map, Activity, Printer,
+  Map, Activity, Printer, Copy, Mail, Download, X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
@@ -223,7 +223,20 @@ function AnalysisPageInner() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [activeRadius, setActiveRadius] = useState(initialRadius);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [siteMapTab, setSiteMapTab] = useState<"map" | "satellite">("satellite");
+  const shareMenuRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target as Node)) {
+        setShowShareMenu(false);
+      }
+    }
+    if (showShareMenu) document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [showShareMenu]);
 
   const handlePrint = () => {
     if (!result) return;
@@ -368,22 +381,91 @@ function AnalysisPageInner() {
             >
               <Printer className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => {
-                navigator.clipboard?.writeText(window.location.href);
-                setLinkCopied(true);
-                setTimeout(() => setLinkCopied(false), 2000);
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-                linkCopied
-                  ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-400"
-                  : "bg-slate-600/40 hover:bg-slate-600 text-slate-400 hover:text-white"
-              }`}
-              title="Copy link to this analysis"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>{linkCopied ? "Copied!" : "Copy link"}</span>
-            </button>
+            {/* ── Share menu ─────────────────────────────────────── */}
+            <div className="relative" ref={shareMenuRef}>
+              <button
+                onClick={() => setShowShareMenu((v) => !v)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-600/40 hover:bg-slate-600 text-slate-400 hover:text-white transition-all duration-200"
+                title="Share this analysis"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Share</span>
+              </button>
+
+              {showShareMenu && (
+                <div className="absolute right-0 top-full mt-2 w-52 bg-slate-800 border border-slate-600/50 rounded-2xl shadow-2xl overflow-hidden z-50">
+                  <div className="px-3 py-2 border-b border-slate-700/50">
+                    <span className="text-slate-400 text-[10px] font-semibold uppercase tracking-widest">Share analysis</span>
+                  </div>
+
+                  {/* Copy Link */}
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(window.location.href);
+                      setLinkCopied(true);
+                      setTimeout(() => { setLinkCopied(false); setShowShareMenu(false); }, 1800);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/60 transition-colors"
+                  >
+                    <Copy className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <span>{linkCopied ? "Copied!" : "Copy link"}</span>
+                  </button>
+
+                  {/* WhatsApp */}
+                  <button
+                    onClick={() => {
+                      const url = encodeURIComponent(window.location.href);
+                      const text = encodeURIComponent(`Car wash site analysis — ${result?.address ?? address}`);
+                      window.open(`https://wa.me/?text=${text}%20${url}`, "_blank");
+                      setShowShareMenu(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/60 transition-colors"
+                  >
+                    <span className="w-4 h-4 flex items-center justify-center text-base flex-shrink-0">💬</span>
+                    <span>WhatsApp</span>
+                  </button>
+
+                  {/* Email */}
+                  <button
+                    onClick={() => {
+                      const subject = encodeURIComponent(`Car wash site analysis — ${result?.address ?? address}`);
+                      const body    = encodeURIComponent(`I ran a car wash site analysis. View the full report here:\n\n${window.location.href}`);
+                      window.open(`mailto:?subject=${subject}&body=${body}`, "_self");
+                      setShowShareMenu(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/60 transition-colors"
+                  >
+                    <Mail className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <span>Email</span>
+                  </button>
+
+                  {/* X / Twitter */}
+                  <button
+                    onClick={() => {
+                      const text = encodeURIComponent(`Car wash site analysis for ${result?.address ?? address} — check out the full report:`);
+                      const url  = encodeURIComponent(window.location.href);
+                      window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, "_blank");
+                      setShowShareMenu(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/60 transition-colors"
+                  >
+                    <X className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <span>Post on X</span>
+                  </button>
+
+                  <div className="border-t border-slate-700/50" />
+
+                  {/* Download PDF */}
+                  <button
+                    onClick={() => { handlePrint(); setShowShareMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/60 transition-colors"
+                  >
+                    <Download className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <span>Download PDF</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -784,29 +866,51 @@ function AnalysisPageInner() {
         ═══════════════════════════════════════════════════════════════ */}
         {(activeTab === "site") && (
           <>
+            {/* ── Map + Satellite combined section with sub-tabs ────── */}
             <Section
-              title="Location Map"
-              subtitle={`${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within ${activeRadius} miles · Click pins for details`}
-              icon={<MapPin className="w-5 h-5 text-blue-400" />}
+              title="Site View"
+              subtitle={siteMapTab === "satellite"
+                ? "Overhead imagery — assess lot shape, road access, and anchor tenants"
+                : `${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within ${activeRadius} miles · Click pins for details`}
+              icon={siteMapTab === "satellite"
+                ? <Map className="w-5 h-5 text-emerald-400" />
+                : <MapPin className="w-5 h-5 text-blue-400" />}
             >
-              <AnalysisMap
-                center={result.coordinates}
-                competitors={competitors}
-                apiKey={apiKey}
-                radiusMiles={activeRadius}
-              />
-            </Section>
+              {/* Sub-tab bar */}
+              <div className="flex gap-1 mb-4 bg-slate-700/30 border border-slate-600/30 rounded-xl p-1 w-fit">
+                {([
+                  { id: "satellite" as const, label: "Satellite Site View", icon: <Map className="w-3.5 h-3.5" /> },
+                  { id: "map"       as const, label: "Location Map",        icon: <MapPin className="w-3.5 h-3.5" /> },
+                ] as const).map(({ id, label, icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setSiteMapTab(id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      siteMapTab === id
+                        ? "bg-slate-600 text-white shadow-sm"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {icon}
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-            <Section
-              title="Satellite Site View"
-              subtitle="Overhead imagery — assess lot shape, road access, and anchor tenants"
-              icon={<Map className="w-5 h-5 text-emerald-400" />}
-            >
-              <SatelliteView
-                coordinates={result.coordinates}
-                address={result.address}
-                apiKey={apiKey}
-              />
+              {siteMapTab === "satellite" ? (
+                <SatelliteView
+                  coordinates={result.coordinates}
+                  address={result.address}
+                  apiKey={apiKey}
+                />
+              ) : (
+                <AnalysisMap
+                  center={result.coordinates}
+                  competitors={competitors}
+                  apiKey={apiKey}
+                  radiusMiles={activeRadius}
+                />
+              )}
             </Section>
 
             {(result.parcel || result.countryCode === "US") && result.parcel && (
