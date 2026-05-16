@@ -44,27 +44,48 @@ function DimensionRow({
             <p className="text-slate-400 text-xs mt-0.5 leading-tight line-clamp-1">{dim.detail}</p>
           </div>
           <div className="text-right ml-3 flex-shrink-0">
-            <div className="flex items-center gap-1.5 justify-end">
-              <span className="text-white font-black text-base tabular-nums">{animated}</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${dim.bg} ${dim.text} ${dim.border}`}>
-                {dim.rating}
-              </span>
-            </div>
-            <div className="text-slate-500 text-[10px] mt-0.5">{Math.round(meta.weight * 100)}% weight</div>
+            {dim.hasData ? (
+              <>
+                <div className="flex items-center gap-1.5 justify-end">
+                  <span className="text-white font-black text-base tabular-nums">{animated}</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${dim.bg} ${dim.text} ${dim.border}`}>
+                    {dim.rating}
+                  </span>
+                </div>
+                <div className="text-slate-500 text-[10px] mt-0.5">{Math.round(meta.weight * 100)}% weight</div>
+              </>
+            ) : (
+              <>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full border bg-slate-600/15 text-slate-400 border-slate-600/40">
+                  No Data
+                </span>
+                <div className="text-slate-500 text-[10px] mt-0.5">{Math.round(meta.weight * 100)}% weight</div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Animated bar */}
-        <div className="h-2 bg-slate-700/60 rounded-full overflow-hidden">
+        {/* Bar — striped when no data */}
+        {dim.hasData ? (
+          <div className="h-2 bg-slate-700/60 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-[width] duration-75"
+              style={{
+                width: `${animated}%`,
+                backgroundColor: dim.color,
+                boxShadow: `0 0 8px ${dim.color}50`,
+              }}
+            />
+          </div>
+        ) : (
           <div
-            className="h-full rounded-full transition-[width] duration-75"
+            className="h-2 rounded-full"
             style={{
-              width: `${animated}%`,
-              backgroundColor: dim.color,
-              boxShadow: `0 0 8px ${dim.color}50`,
+              background: "repeating-linear-gradient(45deg, #334155 0px, #334155 4px, #1e293b 4px, #1e293b 8px)",
+              opacity: 0.7,
             }}
           />
-        </div>
+        )}
       </div>
     </div>
   );

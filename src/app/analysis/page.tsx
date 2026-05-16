@@ -562,6 +562,7 @@ function AnalysisPageInner() {
                 components={score.components}
                 coordinates={result.coordinates}
                 apiKey={apiKey}
+                hasTomTomData={result.tomtom?.trafficFlow?.status === "live"}
               />
             </Section>
 
@@ -938,6 +939,9 @@ function AnalysisPageInner() {
                 rate={rate}
                 budgetUSD={result.budgetUSD ?? 0}
                 investmentSuggestion={result.investmentSuggestion}
+                verdict={score.verdict}
+                isMarginalMarket={score.isMarginalMarket}
+                isNonViableMarket={score.isNonViableMarket}
               />
             </Section>
 

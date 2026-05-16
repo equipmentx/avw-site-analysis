@@ -14,6 +14,9 @@ interface FinancialProjectionProps {
   rate?: number;
   budgetUSD?: number;
   investmentSuggestion?: InvestmentSuggestion;
+  verdict?: "GO" | "CAUTION" | "NO-GO";
+  isMarginalMarket?: boolean;
+  isNonViableMarket?: boolean;
 }
 
 function fmtC(usdValue: number, rate: number, symbol: string): string {
@@ -94,7 +97,7 @@ function AnimatedValue({ value, color }: { value: string; color: string }) {
   );
 }
 
-export default function FinancialProjectionPanel({ data, currency, rate = 1, budgetUSD, investmentSuggestion }: FinancialProjectionProps) {
+export default function FinancialProjectionPanel({ data, currency, rate = 1, budgetUSD, investmentSuggestion, verdict, isMarginalMarket, isNonViableMarket }: FinancialProjectionProps) {
   const symbol = currency?.symbol ?? "$";
   const {
     projections, assumptions, totalProjectCost, downPayment, loanAmount,
@@ -143,6 +146,40 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
             <p className="text-slate-400 text-xs mt-0.5 leading-relaxed">
               No vehicle count was available for this location — projections show $0 because revenue is calculated from passing traffic.
               Ensure <span className="text-slate-300 font-medium">TOMTOM_API_KEY</span> is configured, or try a more specific street address on a main road.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Non-viable market — hard warning */}
+      {isNonViableMarket && (
+        <div className="bg-red-500/10 border border-red-500/35 rounded-xl px-4 py-3 flex items-start gap-3">
+          <span className="text-red-400 text-lg flex-shrink-0 mt-0.5">🚫</span>
+          <div>
+            <p className="text-red-300 text-sm font-semibold">Non-viable market — these figures are not investable</p>
+            <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+              This location scores <strong className="text-red-300">NO-GO</strong>: traffic is below the ICA absolute floor and there are zero commercial anchors nearby.
+              {data.assumptions.membershipCap != null
+                ? ` Membership has been capped at ${data.assumptions.membershipCap.toLocaleString()} (${Math.round(data.assumptions.tradeAreaHouseholds! * 0.12).toLocaleString()} — 12% of ${(data.assumptions.tradeAreaHouseholds ?? 0).toLocaleString()} local households).`
+                : " Even with the industry membership benchmark, this market cannot support a car wash."}
+              {" "}Revenue figures below are illustrative — do not use for investment decisions.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Marginal market — caution warning */}
+      {!isNonViableMarket && isMarginalMarket && (
+        <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
+          <span className="text-orange-400 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+          <div>
+            <p className="text-orange-300 text-sm font-semibold">Marginal market — projections use conservative population-adjusted assumptions</p>
+            <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+              Low traffic and limited commercial density indicate this is a small market.
+              {data.assumptions.membershipCap != null
+                ? ` Membership has been capped at ${data.assumptions.membershipCap.toLocaleString()} based on ${(data.assumptions.tradeAreaHouseholds ?? 0).toLocaleString()} households in the 10-minute drive zone (ICA 12% penetration benchmark). The standard model would project up to 3,000 members — unrealistic for this area.`
+                : " Verify the local household count independently — the default 3,000-member assumption may significantly overstate revenue."}
+              {" "}Treat all projections as directional estimates only.
             </p>
           </div>
         </div>
@@ -341,6 +378,11 @@ export default function FinancialProjectionPanel({ data, currency, rate = 1, bud
             ["Construction Cost",       fmtC(assumptions.constructionCost, rate, symbol),           "29.5% of total project cost (Pro Forma model ratio)"],
             ["Interest Rate",           (assumptions.interestRate * 100).toFixed(0) + "%",          "Pro Forma model — standard SBA commercial lending rate"],
             ["Loan Term",               assumptions.loanTermYears + " years",                       "Pro Forma model — standard commercial term"],
+            ...(assumptions.membershipCap != null ? [[
+              "Membership Cap (Year 1)",
+              `${assumptions.membershipCap.toLocaleString()} members`,
+              assumptions.membershipCapNote,
+            ]] : []),
           ].map(([label, value, source]) => (
             <div key={label} className="flex flex-col border-l-2 border-slate-700 pl-3">
               <span className="text-slate-200 text-xs">{label}</span>

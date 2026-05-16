@@ -207,35 +207,52 @@ function commercialDensityScore(signals: TrafficSignals): number {
 }
 
 // ─── Accessibility score — road speed sweet spot + congestion ─────────────────
-function buildAccessibilityScore(trafficFlow?: TomTomTrafficFlow | null): number {
-  if (!trafficFlow || trafficFlow.status !== "live") return 50; // neutral if no data
+function buildAccessibilityScore(trafficFlow?: TomTomTrafficFlow | null, aadt = 0): number {
+  // No TomTom data = road is likely unmapped (dirt track / private road). Not neutral — score low.
+  if (!trafficFlow || trafficFlow.status !== "live") return 20;
+
+  const frcNum = parseInt(trafficFlow.roadClass?.replace("FRC", "") ?? "4");
+
+  // FRC7 = unpaved track / dirt road — not viable for a commercial car wash
+  if (frcNum >= 7) return 5;
+
+  // If TomTom snapped to a road > 1.5 miles from the site, speed and class data reflect
+  // a completely different road. Apply the same 1.5-mile cutoff used by AADT zeroing in
+  // analyze/route.ts — this is unreliable data, not neutral data.
+  const segDist = trafficFlow.roadSegmentDistanceMiles ?? 0;
+  if (segDist > 1.5) return 25;
 
   const speedKmh = trafficFlow.currentSpeedKmh;
   const { optimalSpeedKmh } = TRAFFIC_BENCHMARKS;
 
-  // Speed sweet spot score (ICA/SC: 25-45 MPH = 40-72 km/h is optimal for impulse entry)
   let speedScore: number;
   if (speedKmh >= optimalSpeedKmh.min && speedKmh <= optimalSpeedKmh.max) {
-    speedScore = 100; // perfect — vehicles can notice and turn in
+    speedScore = 100;
   } else if (speedKmh < optimalSpeedKmh.min) {
-    // Too slow: heavy congestion — stacking and entry issues
     speedScore = Math.max(20, Math.round((speedKmh / optimalSpeedKmh.min) * 80));
   } else {
-    // Too fast: drivers can't react in time
     const excess = speedKmh - optimalSpeedKmh.max;
     speedScore = Math.max(20, Math.round(100 - excess * 1.5));
   }
 
-  // Congestion penalty: heavy congestion hurts accessibility
   const congestionPenalty = trafficFlow.congestionLevel === "HEAVY" ? 25
     : trafficFlow.congestionLevel === "MODERATE" ? 10
     : 0;
 
-  // Road class bonus: arterial roads (FRC2-3) are ideal for car washes
-  const frcNum = parseInt(trafficFlow.roadClass?.replace("FRC", "") ?? "4");
   const roadClassBonus = frcNum <= 2 ? 10 : frcNum <= 3 ? 5 : 0;
 
-  return Math.min(100, Math.max(0, speedScore - congestionPenalty + roadClassBonus));
+  // Partial penalty when segment is 0.5–1.5 mi away (reduced confidence, same road)
+  const segmentPenalty = segDist > 1.0 ? 20 : segDist > 0.5 ? 10 : 0;
+
+  const baseScore = Math.min(100, Math.max(0, speedScore - congestionPenalty + roadClassBonus - segmentPenalty));
+
+  // AADT-based cap: TomTom often snaps to a nearby paved road even when the actual frontage
+  // is unpaved or unmapped. Very low AADT proves the road is not a commercial corridor —
+  // cap the score regardless of the speed data from TomTom's nearest segment.
+  if (aadt > 0 && aadt <= TRAFFIC_BENCHMARKS.absoluteFloorAADT) return Math.min(baseScore, 20);
+  if (aadt > 0 && aadt <= TRAFFIC_BENCHMARKS.marginalAADT)       return Math.min(baseScore, 42);
+
+  return baseScore;
 }
 
 // ─── Visibility score — road class + AADT ────────────────────────────────────
@@ -259,12 +276,15 @@ function buildVisibilityScore(trafficFlow?: TomTomTrafficFlow | null, aadt?: num
 
   // Blend with AADT score
   const aadtScore = aadt ? aadtToTrafficScore(aadt) : 50;
-  return Math.round(classScore * 0.6 + aadtScore * 0.4);
+  const segDist = trafficFlow.roadSegmentDistanceMiles ?? 0;
+  const segPenalty = segDist > 1.5 ? 20 : segDist > 0.5 ? 10 : 0;
+  return Math.min(100, Math.max(0, Math.round(classScore * 0.6 + aadtScore * 0.4) - segPenalty));
 }
 
 // ─── Demographics score — from Census benchmarks ─────────────────────────────
 function buildDemographicsScore(census?: CensusData | null): number {
-  if (!census || census.status !== "live") return 50; // neutral if no data
+  // No Census data = cannot verify demographics meet ICA thresholds. Score low, not neutral.
+  if (!census || census.status !== "live") return 35;
 
   const county = census.county;
   let score = 0;
@@ -299,6 +319,21 @@ function buildDimension(score: number, detail: string): SiteFundamentalsDimensio
     border: rating.border,
     text: rating.text,
     detail,
+    hasData: true,
+  };
+}
+
+function buildNoDataDimension(reason: string): SiteFundamentalsDimension {
+  return {
+    score: 0,
+    rating: "No Data",
+    color: "#475569",
+    bg: "bg-slate-600/15",
+    border: "border-slate-600/40",
+    text: "text-slate-400",
+    detail: reason,
+    hasData: false,
+    noDataReason: reason,
   };
 }
 
@@ -312,7 +347,7 @@ export function buildSiteFundamentals(
   const trafficScore       = aadtToTrafficScore(aadt);
   const demographicsScore  = buildDemographicsScore(census);
   const competitionScore   = buildRawCompetitionScore(competitors);
-  const accessibilityScore = buildAccessibilityScore(trafficFlow);
+  const accessibilityScore = buildAccessibilityScore(trafficFlow, aadt);
   const retailDrawScore    = commercialDensityScore(trafficSignals);
   const visibilityScore    = buildVisibilityScore(trafficFlow, aadt);
 
@@ -325,16 +360,27 @@ export function buildSiteFundamentals(
     visibilityScore    * FUNDAMENTALS_WEIGHTS.visibility
   );
 
-  const speedMph = trafficFlow ? Math.round(trafficFlow.currentSpeedKmh * 0.621) : null;
-  const frc = trafficFlow?.roadClassLabel ?? "unknown";
+  const hasTomTom = trafficFlow?.status === "live";
+  const hasCensus = census?.status === "live";
+  const speedMph  = hasTomTom ? Math.round(trafficFlow!.currentSpeedKmh * 0.621) : null;
+  const frc       = trafficFlow?.roadClassLabel ?? "unknown";
+
+  // Visibility: no data only when both TomTom and AADT are absent
+  const hasVisibilityData = hasTomTom || aadt > 0;
 
   return {
     traffic:       buildDimension(trafficScore,       `${aadt.toLocaleString()} vehicles/day · ICA target: ${TRAFFIC_BENCHMARKS.expressTargetAADT.toLocaleString()}`),
-    demographics:  buildDimension(demographicsScore,  census ? `${Object.values(census.county.benchmarks).filter(b => b.met).length}/3 ICA benchmarks met · ${census.countyName} County` : "US Census data unavailable"),
+    demographics:  hasCensus
+      ? buildDimension(demographicsScore, `${Object.values(census!.county.benchmarks).filter(b => b.met).length}/3 ICA benchmarks met · ${census!.countyName} County`)
+      : buildNoDataDimension("US Census ACS data unavailable for this location — demographics cannot be verified"),
     competition:   buildDimension(competitionScore,   `${competitors.length} car wash${competitors.length !== 1 ? "es" : ""} within search radius · ${competitors.filter(c => c.distanceMiles <= 1).length} within 1 mile`),
-    accessibility: buildDimension(accessibilityScore, speedMph ? `Road speed ${speedMph} MPH · ICA optimal: ${TRAFFIC_BENCHMARKS.optimalSpeedMph.min}–${TRAFFIC_BENCHMARKS.optimalSpeedMph.max} MPH` : "TomTom speed data unavailable"),
+    accessibility: hasTomTom
+      ? buildDimension(accessibilityScore, speedMph ? `Road speed ${speedMph} MPH · ICA optimal: ${TRAFFIC_BENCHMARKS.optimalSpeedMph.min}–${TRAFFIC_BENCHMARKS.optimalSpeedMph.max} MPH` : "TomTom speed data unavailable")
+      : buildNoDataDimension("TomTom road data unavailable — road speed and class cannot be assessed for this location"),
     retailDraw:    buildDimension(retailDrawScore,     `${trafficSignals.nearbyGasStations + trafficSignals.nearbyGroceryStores + trafficSignals.nearbyShopping} commercial anchors nearby`),
-    visibility:    buildDimension(visibilityScore,     `Road class: ${frc}${speedMph ? ` · ${speedMph} MPH` : ""}`),
+    visibility:    hasVisibilityData
+      ? buildDimension(visibilityScore, `Road class: ${frc}${speedMph ? ` · ${speedMph} MPH` : ""}`)
+      : buildNoDataDimension("Road class and traffic volume data unavailable — site visibility cannot be assessed"),
     overall:       buildDimension(overallScore,        "Weighted composite of all 6 dimensions — ICA site-selection methodology"),
   };
 }
@@ -376,9 +422,33 @@ export function calculateLocationScore(
   const within1Mile  = competitors.filter((c) => c.distanceMiles <= 1).length;
   const within3Miles = competitors.filter((c) => c.distanceMiles <= COMPETITION_BENCHMARKS.primaryAnalysisRadiusMiles).length;
 
-  // Competition: original lookup table (no market-viability discount)
+  // Market viability gate — when trade area AADT is below the absolute floor AND there is
+  // zero commercial activity, the market itself cannot sustain a car wash. In that case,
+  // "no competition" means no demand (not first-mover advantage), and the financial model's
+  // stabilized-membership assumptions are completely unrealistic for that population size.
+  const commercialTotal =
+    trafficSignals.nearbyGasStations + trafficSignals.nearbyGroceryStores +
+    trafficSignals.nearbyFastFood    + trafficSignals.nearbyShopping;
+  const isNonViableMarket = aadt < absoluteFloorAADT && commercialTotal === 0;
+  // Boundary fix: use <= (not <) so AADT exactly at marginalAADT is caught.
+  // Also catch sub-viableMinAADT sites with zero commercial — "no competition" there means no market.
+  const isMarginalMarket  = !isNonViableMarket && (
+    (aadt <= marginalAADT && commercialTotal <= 2) ||
+    (aadt < viableMinAADT && commercialTotal === 0)
+  );
+
+  // Competition: cap when market is non-viable or marginal with no commercial anchors.
+  // In those cases "no competition" means "no demand", not "first-mover advantage".
   let competitionScore: number;
-  if      (within1Mile === 0 && within3Miles <= 1)  competitionScore = 95;
+  if (isNonViableMarket) {
+    competitionScore = 15;
+  } else if (isMarginalMarket && commercialTotal === 0) {
+    if (within1Mile === 0 && within3Miles <= 1)      competitionScore = 40;
+    else if (within1Mile === 0 && within3Miles <= 3) competitionScore = 32;
+    else if (within1Mile === 1 && within3Miles <= 4) competitionScore = 25;
+    else if (within1Mile <= 2  && within3Miles <= 6) competitionScore = 18;
+    else                                              competitionScore = 12;
+  } else if (within1Mile === 0 && within3Miles <= 1)  competitionScore = 95;
   else if (within1Mile === 0 && within3Miles <= 3)  competitionScore = 80;
   else if (within1Mile === 1 && within3Miles <= 4)  competitionScore = 65;
   else if (within1Mile <= 2  && within3Miles <= 6)  competitionScore = 50;
@@ -388,12 +458,13 @@ export function calculateLocationScore(
   const totalComplaints = competitors.reduce((sum, c) => sum + c.sentiment.topComplaints.length, 0);
   const lowRatedCount   = competitors.filter((c) => (c.place.rating ?? 5) < 3.5).length;
 
-  // Opportunity: original formula (baseline 50, not 30)
-  let opportunityScore = 50;
+  // Opportunity: suppress in non-viable markets — no real opportunity exists when the
+  // trade area is too small to drive meaningful car wash volume
+  let opportunityScore = isNonViableMarket ? 10 : 50;
   opportunityScore += Math.min(totalComplaints * 5, 30);
   opportunityScore += lowRatedCount * 10;
   if (avgRating > 0 && avgRating < 3.8) opportunityScore += 15;
-  opportunityScore = Math.min(opportunityScore, 100);
+  opportunityScore = Math.min(opportunityScore, isNonViableMarket ? 30 : 100);
 
   // Market: original raw-sum formula
   const marketScore = Math.min(
@@ -404,11 +475,20 @@ export function calculateLocationScore(
     100
   );
 
-  // Financial: original values
-  const financialScore = financialViable ? 75 : 40;
+  // Financial: gate by market viability. The financial model's membership assumptions
+  // (stabilized at 3,000 members) are not realistic for markets below the absolute AADT
+  // floor with zero commercial anchors — those projections are misleading, not conservative.
+  let financialScore: number;
+  if (isNonViableMarket) {
+    financialScore = 10;
+  } else if (isMarginalMarket) {
+    financialScore = financialViable ? 35 : 15;
+  } else {
+    financialScore = financialViable ? 75 : 40;
+  }
 
   // Accessibility: new dimension, small weight absorbed proportionally from others
-  const accessScore = buildAccessibilityScore(trafficFlow);
+  const accessScore = buildAccessibilityScore(trafficFlow, aadt);
 
   const components = {
     traffic:       trafficScore,
@@ -448,7 +528,7 @@ export function calculateLocationScore(
     highlights.push(`Strong traffic corridor — ${aadt.toLocaleString()} vehicles/day with high commercial density`);
   else if (aadt >= viableMinAADT)
     highlights.push(`Moderate corridor traffic of ${aadt.toLocaleString()} vehicles/day — below ${expressTargetAADT.toLocaleString()} AADT target but operational`);
-  if (competitionScore >= 80)
+  if (competitionScore >= 80 && !isMarginalMarket)
     highlights.push("No conveyorized competition in the immediate area — potential first-mover advantage");
   if (totalComplaints > 0)
     highlights.push(`${totalComplaints} complaint categories detected across ${nearbyCount} competitor(s) — potential service gaps to study`);
@@ -475,10 +555,19 @@ export function calculateLocationScore(
     risks.push("Limited gas station proximity — consider prominent signage and digital presence to drive awareness");
   if (aadt < absoluteFloorAADT)
     risks.push("Very low corridor traffic — a car wash at this location would function primarily as a destination business");
+  if (isNonViableMarket)
+    risks.push(`Non-viable market: ${aadt.toLocaleString()} vehicles/day AADT with zero commercial anchors. The market is too small to sustain a car wash — absence of competition here signals no demand, not a first-mover opportunity`);
+  if (isMarginalMarket && commercialTotal === 0)
+    risks.push(`Marginal remote market: ${aadt.toLocaleString()} vehicles/day AADT with zero nearby gas stations, grocery stores, or retail anchors. Financial projections use stabilized membership assumptions (3,000 members) that are not achievable in a market this size — treat all revenue figures as illustrative only. Absence of competition most likely signals no local demand`);
+
   if (trafficFlow && trafficFlow.currentSpeedKmh > TRAFFIC_BENCHMARKS.optimalSpeedKmh.max) {
     const mph = Math.round(trafficFlow.currentSpeedKmh * 0.621);
     risks.push(`Road speed ${mph} MPH exceeds the ${TRAFFIC_BENCHMARKS.optimalSpeedMph.max} MPH optimal threshold — drivers may not react in time to turn in`);
   }
+  if (trafficFlow?.roadSegmentDistanceMiles != null && trafficFlow.roadSegmentDistanceMiles > 1.5)
+    risks.push(`TomTom's nearest road segment is ${trafficFlow.roadSegmentDistanceMiles.toFixed(1)} miles from this site — road speed and class data reflect a different road, not the site's frontage road. Road accessibility data is unreliable for this location`);
+  if (trafficFlow?.status === "live" && parseInt(trafficFlow.roadClass?.replace("FRC", "") ?? "4") >= 7)
+    risks.push("TomTom identifies this road as FRC7 (unpaved track / dirt road) — a paved, commercially-accessible road is required for a car wash. This site fails the road accessibility check");
 
   let explanation = "";
   if (verdict === "GO")
@@ -490,7 +579,7 @@ export function calculateLocationScore(
 
   const siteFundamentals = buildSiteFundamentals(aadt, competitors, trafficSignals, trafficFlow, census);
 
-  return { overall, grade, verdict, verdictColor, components, siteFundamentals, explanation, highlights, risks };
+  return { overall, grade, verdict, verdictColor, components, siteFundamentals, explanation, highlights, risks, isNonViableMarket, isMarginalMarket };
 }
 
 // ─── Review insights aggregation ─────────────────────────────────────────────

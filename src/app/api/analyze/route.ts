@@ -30,7 +30,7 @@ const _attomKey     = process.env.ATTOM_API_KEY     ?? "";
 
 console.log("[AVW] API keys loaded:");
 console.log("  GOOGLE_MAPS_API_KEY:  ", GOOGLE_API_KEY  ? `✅ (${GOOGLE_API_KEY.slice(0,8)}...)`  : "❌ MISSING — required");
-console.log("  TOMTOM_API_KEY:       ", process.env.TOMTOM_API_KEY ? `✅ (${(process.env.TOMTOM_API_KEY).slice(0,8)}...)` : "⚠️  not set  — AADT will use density proxy");
+console.log("  TOMTOM_API_KEY:       ", process.env.TOMTOM_API_KEY ? `✅ (${(process.env.TOMTOM_API_KEY).slice(0,8)}...)` : "⚠️  not set  — AADT will be 0 (no density proxy)");
 console.log("  ATTOM_API_KEY:        ", _attomKey       ? `✅ (${_attomKey.slice(0,8)}...)`        : "⚠️  not set  — parcel data unavailable");
 console.log("  CENSUS_ACS_API_KEY:   ", _censusKey      ? `✅ (${_censusKey.slice(0,8)}...)`      : "ℹ️  not set  — Census works without key (rate-limited)");
 console.log("  OPENAI_API_KEY:       ", _openaiKey      ? `✅ (${_openaiKey.slice(0,8)}...)`      : "⚠️  not set  — decision panel uses rules only");
@@ -635,14 +635,14 @@ export async function POST(req: NextRequest) {
       fetchPlacesNearby(centerLat, centerLng, "school",                 signalRadiusMeters),
     ]);
 
-    // ── Vehicle count — TomTom is the primary source ─────────────────────────
+    // ── Vehicle count — TomTom is the sole source, no estimation fallback ────
     // TomTom Flow Segment Data gives live road speed → BPR function → AADT.
-    // This is the industry-standard approach (HCM 6th Ed.), not estimation.
+    // This is the industry-standard approach (HCM 6th Ed.).
     //
     // Proximity check: if the nearest TomTom road segment is > 1.5 miles from
-    // the queried coordinates, it is likely sampling a different road entirely.
-    // In that case we discard the TomTom count and fall back to the density proxy
-    // to avoid inflated scores for rural/off-road locations.
+    // the queried coordinates, it is sampling a different road entirely and the
+    // count is discarded. No density proxy is applied — we report 0 and let
+    // the scoring reflect the true absence of verified traffic data.
     const rawTomtomVPD       = tomtomData.trafficFlow.vehicleCount.vehiclesPerDay;
     const segDistMiles       = tomtomData.trafficFlow.roadSegmentDistanceMiles ?? 0;
     const segTooFar          = segDistMiles > 1.5;
@@ -657,9 +657,7 @@ export async function POST(req: NextRequest) {
       ? Math.round(rawTomtomVPD * dampFactor)
       : 0;
 
-    const estimatedDailyTraffic = tomtomVehiclesPerDay > 0
-      ? tomtomVehiclesPerDay
-      : gasStations.length * 2_000 + grocery.length * 1_000;
+    const estimatedDailyTraffic = tomtomVehiclesPerDay;
 
     const segWarn = tomtomData.trafficFlow.segmentWarning;
     const trafficEstimationMethod =
@@ -668,10 +666,8 @@ export async function POST(req: NextRequest) {
         : tomtomVehiclesPerDay > 0
         ? tomtomData.trafficFlow.vehicleCount.methodology
         : segTooFar && rawTomtomVPD > 0
-        ? `TomTom segment rejected — nearest road is ${segDistMiles.toFixed(1)} miles from this location (likely a different road). Falling back to density proxy. ${segWarn ?? ""}`
-        : estimatedDailyTraffic > 0
-        ? `TomTom data unavailable — surrogate density estimate from ${gasStations.length} gas station(s) and ${grocery.length} grocery store(s) within ${(radiusMiles * 0.5).toFixed(1)} miles. Configure TOMTOM_API_KEY for accurate vehicle counts. THIS IS AN APPROXIMATION ONLY.`
-        : `Vehicle count unavailable — TomTom API key not configured and no traffic-proxy anchors (gas stations / grocery stores) were found near this location. Financial projections cannot be generated without a traffic count.`;
+        ? `Traffic data unavailable — TomTom's nearest road segment is ${segDistMiles.toFixed(1)} miles from this location (likely a different road entirely). ${segWarn ?? ""} No estimate applied.`
+        : `Traffic data unavailable — TomTom could not identify a road segment near this location. Vehicle count is 0. Financial projections require a valid traffic count.`;
 
     const trafficSignals: TrafficSignals = {
       nearbyGasStations:   gasStations.length,
@@ -714,11 +710,20 @@ export async function POST(req: NextRequest) {
       : attomAvm                          ? "attom-avm"
       : "pro-forma-ratio";
 
+    // Trade area household count — used by financial model to cap membership realistically.
+    // Priority: 10-min isochrone (most relevant trade area) → 15-min → county-level Census.
+    const tradeAreaHouseholds: number | null =
+      tradeAreaDemographics?.tenMin?.households ??
+      tradeAreaDemographics?.fifteenMin?.households ??
+      censusData?.county?.households ??
+      null;
+
     // Financial model — budget is optional; pass 0 if not provided
     const investmentBudget = budget ? parseFloat(budget) : 0;
     const financial = runFinancialModel(
       estimatedDailyTraffic, investmentBudget, wageRates,
       sharedLandCostUSD, sharedLandSource,
+      tradeAreaHouseholds,
     );
     const financialViable = financial.year1EBITDA > 0;
 
@@ -812,7 +817,7 @@ export async function POST(req: NextRequest) {
               `${tomtomVehiclesPerDay.toLocaleString()} vehicles/day AADT. ` +
               `Same methodology used by traffic engineers (HCM 6th Ed.). ` +
               `This is the actual vehicle count passing the site — not an estimate.`
-            : "TomTom unavailable — rough density proxy used. Configure TOMTOM_API_KEY for real vehicle counts.",
+            : "TomTom traffic data unavailable or segment too far from site — vehicle count is 0. No density proxy is applied.",
         financialModel:
           "Express Car Wash Investment Pro Forma — updated to 2024-2025 industry benchmarks " +
           "(ICA 2024, Rinsed Q4 2024, ZipRecruiter/BLS 2024, MMCG Invest 2024). " +
@@ -872,7 +877,7 @@ export async function POST(req: NextRequest) {
               `Traffic Flow Segment Data v4 (vehicle count + road speed at site) · ` +
               `Reachable Range v1 (5/10/15-min drive-time isochrones with live traffic) · ` +
               `Traffic Incidents v5 (live closures, roadworks, and hazards within ${(radiusMiles * 0.5 * 1.609).toFixed(1)}km).`
-            : "Not available — TOMTOM_API_KEY not configured. Vehicle count will be a density proxy only.",
+            : "Not available — TOMTOM_API_KEY not configured. Vehicle count is 0 — no density proxy applied.",
         proximity:
           proximityData?.status === "live"
             ? proximityData.osmSource

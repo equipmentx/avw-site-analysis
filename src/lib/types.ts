@@ -76,6 +76,8 @@ export interface SiteFundamentalsDimension {
   border: string;
   text: string;
   detail: string;
+  hasData: boolean;
+  noDataReason?: string;
 }
 
 export interface SiteFundamentalsScore {
@@ -105,6 +107,8 @@ export interface LocationScore {
   explanation: string;
   highlights: string[];
   risks: string[];
+  isNonViableMarket: boolean;
+  isMarginalMarket: boolean;
 }
 
 export interface PackageTierBreakdown {
@@ -173,6 +177,10 @@ export interface FinancialAssumptions {
   wageSource: "ilo-occupation" | "ilo-all-workers" | "world-bank-derived" | "unavailable" | "excel-baseline";
   wagePeriod: string;
   wageNote: string;
+  // Population-based membership cap — derived from Census trade area households
+  tradeAreaHouseholds: number | null;
+  membershipCap: number | null;
+  membershipCapNote: string;
 }
 
 export interface InvestmentSuggestion {

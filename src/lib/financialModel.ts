@@ -86,6 +86,12 @@ export function getCarWashFormat(budgetUSD: number): CarWashFormat {
 //   MMCG Invest 2025 Industry Overview, MMCG Invest 2024 Demand Analysis,
 //   ZipRecruiter/BLS 2024 wage data, MMCG Invest / Motor City Wash Works project costs.
 
+// ICA benchmark: a mature express tunnel reaches ~12% household penetration
+// at the recommended 25,000-household minimum trade area (3,000 members / 25,000 HH).
+// Used to cap membership when Census household data is available — prevents
+// unrealistic projections in small markets (e.g. 1,650 members in a 2,000-person town).
+const MEMBER_PENETRATION_RATE = 0.12;
+
 // ── AADT-tiered capture rate adjustment ───────────────────────────────────────
 // Source: MMCG Invest 2024 Demand Analysis in Feasibility Studies.
 // Capture decreases as AADT rises — circulation/stacking becomes binding constraint.
@@ -209,6 +215,7 @@ function buildYearProjection(
   monthlyDebtService: number,
   staffHourly:       number,
   managerHourly:     number,
+  membershipHhCap:   number,   // population-derived ceiling — Infinity if no Census data
 ): YearlyProjection {
 
   // Traffic grows 2%/year
@@ -227,6 +234,7 @@ function buildYearProjection(
   const totalSubs   = Math.min(
     Math.round(TRAFFIC.stabilizedMembers * rampFactor),
     Math.round(annualStandardCars * 0.50), // hard cap: members can't exceed 50% of drive-by cars
+    membershipHhCap,                        // population cap: 12% of trade area households (ICA benchmark)
   );
   const unlimitedWashes = totalSubs * TRAFFIC.avgWashesPerMonth * 12;
 
@@ -300,6 +308,7 @@ export function runFinancialModel(
   wageRates?: WageRates,
   actualLandCostUSD?: number | null,                               // real ATTOM parcel land value — overrides the 23.9% ratio
   actualLandCostSource?: FinancialAssumptions["landCostSource"],   // which ATTOM field it came from
+  tradeAreaHouseholds?: number | null,                             // Census HH count in 10-min drive zone — caps membership
 ): FinancialProjection {
 
   const budget = investmentBudget && investmentBudget > 0 ? investmentBudget : 0;
@@ -348,6 +357,13 @@ export function runFinancialModel(
     FINANCING.loanTermYears,
   );
 
+  // ── Population-based membership cap ───────────────────────────────────────
+  // ICA benchmark: mature express = ~12% of trade area households (3,000 members / 25,000 HH minimum).
+  // Without this cap the model assumes 1,650 Year-1 members even in a 2,000-person town.
+  const membershipHhCap = tradeAreaHouseholds != null && tradeAreaHouseholds > 0
+    ? Math.round(tradeAreaHouseholds * MEMBER_PENETRATION_RATE)
+    : Infinity;
+
   // ── 5-year projections ─────────────────────────────────────────────────────
   const projections: YearlyProjection[] = [];
 
@@ -366,6 +382,7 @@ export function runFinancialModel(
         landCost, equipmentCost, constructionCost,
         loanAmount, monthlyDebtService,
         staffHourly, managerHourly,
+        membershipHhCap,
       ));
     }
   }
@@ -453,6 +470,11 @@ export function runFinancialModel(
     wageNote:          wagesAvailable
       ? wageRates!.note
       : "Live wage data unavailable — using 2024-2025 US industry benchmarks ($15/hr staff · $19/hr manager; ZipRecruiter/BLS 2024). Verify local labour costs with an HR consultant.",
+    tradeAreaHouseholds: tradeAreaHouseholds ?? null,
+    membershipCap:       membershipHhCap === Infinity ? null : membershipHhCap,
+    membershipCapNote:   membershipHhCap < Infinity
+      ? `Capped at ${membershipHhCap.toLocaleString()} members (${Math.round(MEMBER_PENETRATION_RATE * 100)}% of ${(tradeAreaHouseholds ?? 0).toLocaleString()} households in 10-min drive-time zone). ICA benchmark: mature express tunnels reach ~12% HH penetration at the recommended 25,000-HH minimum trade area.`
+      : "No Census household data available for this location — using MMCG stabilized benchmark (3,000 members). Verify local market size independently before committing capital.",
   };
 
   return {

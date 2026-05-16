@@ -13,6 +13,7 @@ interface ScoreBreakdownProps {
   };
   coordinates?: { lat: number; lng: number };
   apiKey?: string;
+  hasTomTomData?: boolean;
 }
 
 const COMPONENT_META = {
@@ -56,7 +57,7 @@ const COMPONENT_META = {
   },
 };
 
-export default function ScoreBreakdown({ components, coordinates, apiKey }: ScoreBreakdownProps) {
+export default function ScoreBreakdown({ components, coordinates, apiKey, hasTomTomData = true }: ScoreBreakdownProps) {
   // Street View image URL for the actual address — changes with every new location
   const streetViewImg = coordinates && apiKey
     ? `https://maps.googleapis.com/maps/api/streetview?size=80x80&location=${coordinates.lat},${coordinates.lng}&fov=90&pitch=5&key=${apiKey}`
@@ -104,12 +105,15 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
 
   return (
     <div ref={ref} className="space-y-5">
-      {(Object.keys(components) as Array<keyof typeof components>).filter((key) => key !== "accessibility" || (components.accessibility ?? 0) > 0).map((key) => {
+      {(Object.keys(components) as Array<keyof typeof components>).map((key) => {
         const meta = COMPONENT_META[key as keyof typeof COMPONENT_META];
         const target = components[key] ?? 0;
         const current = animated[key];
         const strength = target >= 70 ? "Strong" : target >= 50 ? "Moderate" : "Weak";
         const strengthColor = target >= 70 ? "#10b981" : target >= 50 ? "#f59e0b" : "#ef4444";
+
+        // Accessibility has no data when TomTom is unavailable — show "No data" indicator
+        const isNoData = key === "accessibility" && !hasTomTomData;
 
         return (
           <div key={key} className="flex items-center gap-4">
@@ -121,7 +125,6 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
                 className="w-full h-full object-cover"
                 loading="lazy"
                 onError={(e) => {
-                  // Fallback to static image if Street View unavailable
                   (e.target as HTMLImageElement).src = meta.img;
                 }}
               />
@@ -133,36 +136,55 @@ export default function ScoreBreakdown({ components, coordinates, apiKey }: Scor
                   <span className="text-white text-sm font-semibold">{meta.label}</span>
                   <p className="text-slate-300 text-xs">{meta.desc}</p>
                 </div>
-                <div className="text-right ml-3 flex-shrink-0">
-                  <span className="text-white font-black text-lg tabular-nums">{current}</span>
-                  <span className="text-slate-300 text-xs">/100</span>
-                  <div className="text-xs font-semibold" style={{ color: strengthColor }}>
-                    {strength}
+                {isNoData ? (
+                  <div className="text-right ml-3 flex-shrink-0">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full border bg-slate-600/15 text-slate-400 border-slate-600/40">
+                      No Data
+                    </span>
+                    <div className="text-slate-500 text-xs mt-0.5">TomTom unavailable</div>
                   </div>
-                </div>
+                ) : (
+                  <div className="text-right ml-3 flex-shrink-0">
+                    <span className="text-white font-black text-lg tabular-nums">{current}</span>
+                    <span className="text-slate-300 text-xs">/100</span>
+                    <div className="text-xs font-semibold" style={{ color: strengthColor }}>
+                      {strength}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Bar */}
-              <div className="h-2.5 bg-slate-700/60 rounded-full overflow-hidden">
+              {/* Bar — striped when no data */}
+              {isNoData ? (
                 <div
-                  className="h-full rounded-full relative overflow-hidden"
+                  className="h-2.5 rounded-full"
                   style={{
-                    width: `${current}%`,
-                    backgroundColor: meta.color,
-                    boxShadow: `0 0 10px ${meta.color}60`,
-                    transition: "width 0.04s linear",
+                    background: "repeating-linear-gradient(45deg, #334155 0px, #334155 4px, #1e293b 4px, #1e293b 8px)",
+                    opacity: 0.7,
                   }}
-                >
+                />
+              ) : (
+                <div className="h-2.5 bg-slate-700/60 rounded-full overflow-hidden">
                   <div
-                    className="absolute inset-0 opacity-30"
+                    className="h-full rounded-full relative overflow-hidden"
                     style={{
-                      background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)",
-                      backgroundSize: "200% 100%",
-                      animation: "shimmer 2s infinite",
+                      width: `${current}%`,
+                      backgroundColor: meta.color,
+                      boxShadow: `0 0 10px ${meta.color}60`,
+                      transition: "width 0.04s linear",
                     }}
-                  />
+                  >
+                    <div
+                      className="absolute inset-0 opacity-30"
+                      style={{
+                        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)",
+                        backgroundSize: "200% 100%",
+                        animation: "shimmer 2s infinite",
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         );
