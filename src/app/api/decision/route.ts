@@ -387,41 +387,34 @@ function rulesDecision(
   if (verdict === "INVEST") {
     const topComplaint = reviewInsights.dominantComplaints[0]?.category ?? "service quality";
     recommendation =
-      `Proceed with site acquisition and detailed engineering feasibility study` +
-      (config ? ` for a ${config.name}` : "") + `. ` +
+      `Proceed with site acquisition and detailed engineering feasibility study. ` +
       `Differentiate on ${topComplaint.toLowerCase()} — the primary gap in this market. ` +
-      (config?.membershipFriendly
-        ? `Launch with an unlimited membership plan from day one to maximise recurring revenue.`
-        : `Focus on per-wash throughput and premium service differentiation.`);
+      `Focus on per-wash throughput and premium service differentiation.`;
   } else if (verdict === "PROCEED WITH CAUTION") {
     recommendation = budgetMarginal
-      ? `Explore raising additional equity or securing financing to close the ${fmtUSD(budgetGap)} gap` +
-        (config ? ` needed for the ${config.shortName}` : "") + `. ` +
+      ? `Explore raising additional equity or securing financing to close the ${fmtUSD(budgetGap)} gap. ` +
         `Alternatively, evaluate a smaller format (e.g. in-bay automatic at ~${fmtUSD(effectiveMinRequired * 0.45)}) as a lower-risk entry point.`
       : `Commission a professional traffic study and competitor analysis before committing. ` +
         `Negotiate site control (option agreement) while conducting due diligence. ` +
-        `Consider a phased opening to validate demand before committing to` +
-        (config ? ` the full ${config.shortName} build.` : ` the full build.`);
+        `Consider a phased opening to validate demand before committing to the full build.`;
   } else {
     recommendation = budgetFeasible
       ? `This location's traffic and market fundamentals do not support the investment at this time. ` +
         `Evaluate alternative sites with higher commercial density or weaker competition. ` +
         `Re-run the analysis with a different address.`
-      : `Increase your investment budget to at least ${fmtUSD(effectiveMinRequired)} before proceeding` +
-        (config ? ` with the ${config.shortName}` : "") + `. ` +
+      : `Increase your investment budget to at least ${fmtUSD(effectiveMinRequired)} before proceeding. ` +
         `At ${fmtUSD(budgetUSD)}, the facility cannot be built to a standard that generates positive returns. ` +
         `Explore SBA 504 loans (10% down), equipment financing, or equity partnerships to bridge the gap.`;
   }
 
   // ── Decision summary ────────────────────────────────────────────────────────
   const decisionSummary =
-    `This ${result.address} analysis scores ${score.overall}/100 with a ${score.verdict} verdict` +
-    (config ? ` for a ${config.name}` : "") + `. ` +
+    `This ${result.address} analysis scores ${score.overall}/100 with a ${score.verdict} verdict. ` +
     (noBudget
       ? `No investment budget was entered — evaluated on location fundamentals only. Typical investment: ${fmtUSD(effectiveMinRequired)} in ${country.name}.`
       : budgetFeasible
-      ? `Your budget of ${fmtUSD(budgetUSD)} covers the minimum ${fmtUSD(effectiveMinRequired)} required${config ? ` for this format` : ""} in ${country.name}.`
-      : `However, your budget of ${fmtUSD(budgetUSD)} falls ${fmtUSD(budgetGap)} short of the ${fmtUSD(effectiveMinRequired)} minimum${config ? ` for the ${config.shortName}` : ""} in ${country.name}.`) +
+      ? `Your budget of ${fmtUSD(budgetUSD)} covers the minimum ${fmtUSD(effectiveMinRequired)} required in ${country.name}.`
+      : `However, your budget of ${fmtUSD(budgetUSD)} falls ${fmtUSD(budgetGap)} short of the ${fmtUSD(effectiveMinRequired)} minimum in ${country.name}.`) +
     ` ${verdict === "INVEST" ? "The location fundamentals support moving forward." : verdict === "PROCEED WITH CAUTION" ? "Proceed carefully with additional due diligence." : "This investment is not recommended at this time."}`;
 
   return {
@@ -545,7 +538,7 @@ Address: ${result.address}
 Country: ${result.countryCode}
 Verdict: ${decision.verdict}
 Budget: ${fmtUSD(budgetUSD)} USD | Minimum required: ${fmtUSD(decision.minimumRequiredUSD)}
-Selected format: ${config ? `${config.name} (${config.categoryLabel}) — ${config.carsPerHour.min}–${config.carsPerHour.max} cars/hr, ${config.staffRequired.min}–${config.staffRequired.max} staff, lot min ${config.minLotSqFt.toLocaleString()} sqft, US investment range ${fmtUSD(config.investmentRangeUSD.min)}–${fmtUSD(config.investmentRangeUSD.max)}, ${config.membershipFriendly ? "membership-ready" : "no membership model"}, avg ticket $${config.avgTicketUSD}` : "None selected — generic analysis"}
+Selected format: None — generic analysis
 Score: ${result.score.overall}/100 (${result.score.verdict})
 Estimated daily traffic: ${result.trafficSignals.estimatedDailyTraffic.toLocaleString()} vehicles/day [source: TomTom Traffic Flow API — BPR/HCM methodology]
 Nearby grocery stores: ${result.trafficSignals.nearbyGroceryStores} [source: Google Places API]
