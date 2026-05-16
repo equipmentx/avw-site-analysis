@@ -13,7 +13,6 @@ import dynamic from "next/dynamic";
 import type { SiteAnalysisResult, CurrencyOption } from "@/lib/types";
 import { CURRENCIES } from "@/lib/types";
 import { generatePrintReport } from "@/lib/printReport";
-import { getConfig } from "@/lib/carwashConfigs";
 import ScoreRing from "@/components/ScoreRing";
 import ScoreBreakdown from "@/components/ScoreBreakdown";
 import CompetitorCard from "@/components/CompetitorCard";
@@ -212,7 +211,6 @@ function AnalysisPageInner() {
   const budget       = searchParams.get("budget")   ?? "";
   const currCode     = searchParams.get("currency") ?? localStorage?.getItem("carwash_currency") ?? "USD";
   const initialRadius = parseFloat(searchParams.get("radius") ?? "5") || 5;
-  const configId     = searchParams.get("config") ?? null;
   const paramLat     = searchParams.get("lat")     ?? "";
   const paramLng     = searchParams.get("lng")     ?? "";
   const paramPlaceId = searchParams.get("placeId") ?? "";
@@ -240,7 +238,7 @@ function AnalysisPageInner() {
 
   const handlePrint = () => {
     if (!result) return;
-    const html = generatePrintReport(result, currency, rate, configId);
+    const html = generatePrintReport(result, currency, rate);
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(html);
@@ -286,7 +284,6 @@ function AnalysisPageInner() {
           address,
           budget,
           radiusMiles: effectiveRadius,
-          configId,
           ...(paramLat && paramLng ? { lat: parseFloat(paramLat), lng: parseFloat(paramLng) } : {}),
           ...(paramPlaceId ? { placeId: paramPlaceId } : {}),
         }),
@@ -497,30 +494,6 @@ function AnalysisPageInner() {
         ═══════════════════════════════════════════════════════════════ */}
         {(activeTab === "overview") && (
           <>
-            {/* Selected format badge */}
-            {configId && (() => {
-              const cfg = getConfig(configId);
-              if (!cfg) return null;
-              return (
-                <div className="flex items-center gap-3 bg-blue-500/8 border border-blue-500/20 rounded-2xl px-5 py-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/25 flex items-center justify-center text-sm flex-shrink-0">
-                    {cfg.category === "tunnel" ? "🏗️" : cfg.category === "inbay" ? "🤖" : cfg.category === "selfserve" ? "🚿" : "⚡"}
-                  </div>
-                  <div>
-                    <div className="text-xs text-blue-400 font-semibold uppercase tracking-widest">Selected Format</div>
-                    <div className="text-white font-bold text-sm">{cfg.name}</div>
-                  </div>
-                  <div className="ml-auto hidden sm:flex items-center gap-4 text-xs text-slate-400">
-                    <span>{cfg.carsPerHour.min}–{cfg.carsPerHour.max} cars/hr</span>
-                    <span>Min {cfg.minLotSqFt.toLocaleString()} sqft</span>
-                    <span className={cfg.membershipFriendly ? "text-emerald-400" : "text-slate-500"}>
-                      {cfg.membershipFriendly ? "✓ Membership ready" : "No membership model"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-
             {/* Hero Score Card */}
             <div className="bg-slate-700/25 border border-slate-600/25 rounded-3xl p-8 overflow-hidden relative">
               <div
@@ -1102,7 +1075,6 @@ function AnalysisPageInner() {
                 budget={budget ? parseFloat(budget) : 0}
                 currency={currency}
                 rate={rate}
-                configId={configId ?? undefined}
               />
             </Section>
 

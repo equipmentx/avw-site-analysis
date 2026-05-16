@@ -326,7 +326,7 @@ export default function LandingPage() {
     if (selectedLat !== null) params.set("lat", selectedLat.toString());
     if (selectedLng !== null) params.set("lng", selectedLng.toString());
     if (selectedPlaceId)      params.set("placeId", selectedPlaceId);
-    router.push(`/configure?${params.toString()}`);
+    router.push(`/analysis?${params.toString()}`);
   };
 
   const handleLogoClick = () => window.location.reload();

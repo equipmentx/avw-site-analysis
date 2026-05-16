@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCountry } from "@/lib/countryData";
-import { CAR_WASH_CONFIGS } from "@/lib/carwashConfigs";
-import type { CarWashConfig } from "@/lib/carwashConfigs";
 import type { SiteAnalysisResult, AiDecision } from "@/lib/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -20,7 +18,6 @@ function rulesDecision(
   result: SiteAnalysisResult,
   budgetUSD: number,
   exchangeRate: number,
-  config?: CarWashConfig
 ): AiDecision {
   const country     = getCountry(result.countryCode);
   const minRequired = country.minViableUSD;
@@ -36,17 +33,7 @@ function rulesDecision(
   const closures       = tomtom?.incidents.closureCount ?? 0;
   const flowStatus     = tomtom?.trafficFlow.status ?? "unavailable";
 
-  // ── Config-aware budget floor ──────────────────────────────────────────────
-  // If the user selected a specific car wash format, use that format's investment
-  // range (scaled by the country multiplier) as the primary budget benchmark.
-  // Fall back to the generic country minimum if no config is selected.
-  const configMinUSD = config
-    ? config.investmentRangeUSD.min * country.multiplier
-    : null;
-  const configMaxUSD = config
-    ? config.investmentRangeUSD.max * country.multiplier
-    : null;
-  const effectiveMinRequired = configMinUSD ?? minRequired;
+  const effectiveMinRequired = minRequired;
 
   // ── Budget feasibility ──────────────────────────────────────────────────────
   // budget=0 means "no budget entered" — evaluate on location score only
@@ -124,39 +111,30 @@ function rulesDecision(
   }
 
   // ── Budget analysis message ─────────────────────────────────────────────────
-  const configLabel = config ? `a ${config.name}` : "a car wash";
-  const configFloorNote = config
-    ? `(${config.name} investment range: ${fmtUSD(config.investmentRangeUSD.min)}–${fmtUSD(config.investmentRangeUSD.max)} US baseline, scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}%)`
-    : `(based on the Express Car Wash Pro Forma model scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of the US benchmark)`;
+  const configFloorNote = `(based on the Express Car Wash Pro Forma model scaled to ${country.name} at ${(country.multiplier * 100).toFixed(0)}% of the US benchmark)`;
 
   let budgetAnalysis: string;
   if (noBudget) {
     budgetAnalysis =
       `No investment budget was provided — this decision is evaluated on location fundamentals only. ` +
-      `The typical investment required for ${configLabel} in ${country.name} is ${fmtUSD(effectiveMinRequired)} ${configFloorNote}. ` +
-      (config && configMaxUSD ? `Full build-out range: ${fmtUSD(configMaxUSD)}. ` : "") +
+      `The typical investment required for a car wash in ${country.name} is ${fmtUSD(effectiveMinRequired)} ${configFloorNote}. ` +
       `To get a personalised budget feasibility assessment, enter your available investment on the home page.`;
   } else if (budgetFeasible) {
     budgetAnalysis =
-      `Budget of ${fmtUSD(budgetUSD)} is SUFFICIENT for ${configLabel} in ${country.name}. ` +
+      `Budget of ${fmtUSD(budgetUSD)} is SUFFICIENT for a car wash in ${country.name}. ` +
       `Minimum viable investment is ${fmtUSD(effectiveMinRequired)} ${configFloorNote}. ` +
-      `Your budget covers ${(budgetRatio * 100).toFixed(0)}% of the minimum threshold.` +
-      (config && configMaxUSD ? ` The full build-out range for this format runs to ${fmtUSD(configMaxUSD)}.` : "");
+      `Your budget covers ${(budgetRatio * 100).toFixed(0)}% of the minimum threshold.`;
   } else if (budgetMarginal) {
     budgetAnalysis =
-      `Budget of ${fmtUSD(budgetUSD)} is MARGINAL for ${configLabel} in ${country.name}. ` +
+      `Budget of ${fmtUSD(budgetUSD)} is MARGINAL for a car wash in ${country.name}. ` +
       `Minimum viable investment is ${fmtUSD(effectiveMinRequired)} ${configFloorNote} — you are ${fmtUSD(budgetGap)} short (${(budgetRatio * 100).toFixed(0)}% funded). ` +
-      (config
-        ? `Consider raising additional equity or revising to a smaller format than the ${config.shortName}.`
-        : `At this level you may be limited to a self-serve or in-bay automatic format rather than a full express tunnel. ` +
-          `Consider raising additional equity or revising to a smaller format.`);
+      `At this level you may be limited to a self-serve or in-bay automatic format rather than a full express tunnel. ` +
+      `Consider raising additional equity or revising to a smaller format.`;
   } else {
     budgetAnalysis =
-      `Budget of ${fmtUSD(budgetUSD)} is INSUFFICIENT for ${configLabel} in ${country.name}. ` +
+      `Budget of ${fmtUSD(budgetUSD)} is INSUFFICIENT for a car wash in ${country.name}. ` +
       `The minimum viable investment is ${fmtUSD(effectiveMinRequired)} ${configFloorNote}, meaning you are ${fmtUSD(budgetGap)} short (${(budgetRatio * 100).toFixed(0)}% funded). ` +
-      (config
-        ? `The ${config.shortName} requires: equipment alone ~${fmtUSD(config.investmentRangeUSD.min * 0.35)}, construction ~${fmtUSD(config.investmentRangeUSD.min * 0.30)}, land ~${fmtUSD(config.investmentRangeUSD.min * 0.24)}. `
-        : `A US-standard express tunnel requires: equipment alone ~$1.2M, construction ~$1.08M, land ~$875K. `) +
+      `A US-standard express tunnel requires: equipment alone ~$1.2M, construction ~$1.08M, land ~$875K. ` +
       `Even in lower-cost markets like ${country.name}, core equipment and installation represent the largest fixed cost. ` +
       `At your current budget level, this format cannot be built. ` +
       `To proceed: either increase your investment to at least ${fmtUSD(effectiveMinRequired)}, or explore a smaller format at lower entry cost.`;
@@ -324,51 +302,9 @@ function rulesDecision(
     );
   }
 
-  // ── Config-specific lot fit check ───────────────────────────────────────────
-  if (config && parcelLive && lotSqFt !== null) {
-    if (lotSqFt >= config.minLotSqFt) {
-      greenFlags.push(
-        `Lot is ${lotSqFt.toLocaleString()} sqft — fits the ${config.name} layout requirement of ${config.minLotSqFt.toLocaleString()} sqft minimum. Source: ATTOM.`
-      );
-    } else {
-      redFlags.push(
-        `Lot is only ${lotSqFt.toLocaleString()} sqft — the ${config.name} needs at least ${config.minLotSqFt.toLocaleString()} sqft (${config.minLotWidthFt}ft wide × ${config.minLotDepthFt}ft deep). This format does not fit this parcel. Source: ATTOM.`
-      );
-    }
-  }
-
-  // Config throughput vs traffic — does this format make sense for this traffic level?
-  if (config) {
-    const dailyCars = fp.assumptions.dailyCarsWashed;
-    const peakHourCapacity = config.carsPerHour.max;
-    if (dailyCars > 0 && peakHourCapacity > 0) {
-      const hoursToServe = dailyCars / peakHourCapacity;
-      if (hoursToServe > 8) {
-        greenFlags.push(
-          `Traffic demand (${dailyCars} cars/day projected) would require ${hoursToServe.toFixed(1)} hours at ${peakHourCapacity} cars/hr — ` +
-          `the ${config.shortName} may be undersized for this location. Consider a higher-throughput format.`
-        );
-      } else if (hoursToServe < 2) {
-        redFlags.push(
-          `Projected demand (${dailyCars} cars/day) only utilises the ${config.shortName} for ${hoursToServe.toFixed(1)} hours at peak — ` +
-          `this format may be oversized for this traffic level, inflating capex unnecessarily.`
-        );
-      } else {
-        greenFlags.push(
-          `The ${config.shortName} (${config.carsPerHour.min}–${config.carsPerHour.max} cars/hr) suits the projected demand of ${dailyCars} cars/day.`
-        );
-      }
-    }
-  }
-
   // ── Key factors ─────────────────────────────────────────────────────────────
   const keyFactors: string[] = [
-    config
-      ? `Selected format: ${config.name} (${config.categoryLabel}) — ${config.carsPerHour.min}–${config.carsPerHour.max} cars/hr · ${config.staffRequired.min}–${config.staffRequired.max} staff · ${config.membershipFriendly ? "membership-ready" : "no membership model"}`
-      : `No format selected — generic analysis`,
-    config
-      ? `Format investment range: ${fmtUSD(config.investmentRangeUSD.min)}–${fmtUSD(config.investmentRangeUSD.max)} US baseline → ${fmtUSD(effectiveMinRequired)}–${fmtUSD(configMaxUSD ?? effectiveMinRequired)} in ${country.name}`
-      : `Country minimum viable investment: ${fmtUSD(minRequired)}`,
+    `Country minimum viable investment: ${fmtUSD(minRequired)}`,
     `Overall location score: ${score.overall}/100 (${score.grade} — ${score.verdict})`,
     `Traffic score: ${score.components.traffic}/100 | Competition: ${score.components.competition}/100 | Opportunity: ${score.components.opportunity}/100`,
     `Year 1 revenue: ${fmtUSD(fp.year1Revenue)} | EBITDA: ${fmtUSD(fp.year1EBITDA)} | Payback: ${fp.paybackYears} yrs | IRR: ~${fp.irr5Year}%`,
@@ -508,21 +444,15 @@ function rulesDecision(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { result, budget, exchangeRate = 1, configId } = body as {
+    const { result, budget, exchangeRate = 1 } = body as {
       result: SiteAnalysisResult;
       budget: number;
       exchangeRate?: number;
-      configId?: string;
     };
 
     if (!result || budget == null) {
       return NextResponse.json({ error: "result and budget are required" }, { status: 400 });
     }
-
-    // Resolve the selected car wash config if provided
-    const config = configId
-      ? CAR_WASH_CONFIGS.find((c) => c.id === configId)
-      : undefined;
 
     // Convert budget to USD using provided exchange rate
     const budgetUSD = budget / (exchangeRate || 1);
@@ -542,7 +472,7 @@ export async function POST(req: NextRequest) {
     // Rules-based engine always runs first
     let decision: AiDecision;
     try {
-      decision = rulesDecision(result, budgetUSD, exchangeRate, config);
+      decision = rulesDecision(result, budgetUSD, exchangeRate);
     } catch (rulesErr: any) {
       console.error("[AVW/decision] rulesDecision threw:", rulesErr?.message ?? String(rulesErr));
       console.error("[AVW/decision] result.investmentSuggestion defined:", !!result.investmentSuggestion);

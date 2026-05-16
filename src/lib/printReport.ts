@@ -29,7 +29,6 @@ export function generatePrintReport(
   result: SiteAnalysisResult,
   currency: CurrencyOption,
   rate: number,
-  configId: string | null,
 ): string {
   const { score, competitors, trafficSignals, financialProjection: fp, reviewInsights, investmentSuggestion: inv } = result;
   const sym = currency.symbol;
@@ -149,7 +148,6 @@ export function generatePrintReport(
     Analyzed: ${now} &nbsp;·&nbsp;
     Verdict: <strong style="color:${verdictColor};">${score.verdict}</strong> &nbsp;·&nbsp;
     Overall Score: <strong>${score.overall}/100</strong>
-    ${configId ? ` &nbsp;·&nbsp; Format: ${configId}` : ""}
   </p>
 
   <!-- SCORE OVERVIEW -->
